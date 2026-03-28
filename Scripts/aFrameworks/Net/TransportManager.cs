@@ -38,7 +38,7 @@ public partial class TransportManager : Singleton<TransportManager>
         if (Current != null && @event == "Kick")
         {
             //Current.LeaveRoom();
-            Game.TryFreeGameAndReturn("Kicked or Started");
+            Game.TryFreeGameAndReturn("Kicked");
         }
     }
     public void HostKick(ulong id)

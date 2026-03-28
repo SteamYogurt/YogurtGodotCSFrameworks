@@ -96,7 +96,7 @@ public partial class NetManager : Singleton<NetManager>
 
         if (transportManager.Current.AmIHost())
         {
-            if (accum > 4)
+            if (accum > 3)
             {
                 accum = 0;
                 foreach (var obj in idToObject.Values)
@@ -108,7 +108,7 @@ public partial class NetManager : Singleton<NetManager>
         }
         else
         {
-            if (accum > 4)
+            if (accum > 3)
             {
                 accum = 0;
                 foreach (var obj in idToObject.Values)

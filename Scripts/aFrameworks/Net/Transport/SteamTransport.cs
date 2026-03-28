@@ -121,7 +121,7 @@ public partial class SteamTransport : INetTransport
         for (int i = 0; i < _cachedMemberIDs.Count; i++)
         {
             ulong memberID = _cachedMemberIDs[i];
-
+            if (memberID == myID) continue;
             bool shouldSend = type switch
             {
                 SendType.AllOthers => memberID != myID,
