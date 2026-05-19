@@ -5,6 +5,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Collections.Concurrent;
+using System.Buffers.Binary;
 public class LanPlayerInfo
 {
     public ulong PlayerId;
@@ -194,6 +195,11 @@ public partial class LanTransport : INetTransport
     /// </summary>
     public void Send(byte[] data, SendType type)
     {
+        Send(data.AsSpan(), type);
+    }
+
+    public void Send(ReadOnlySpan<byte> data, SendType type)
+    {
         if (!InRoom) return;
 
         if (isHost)
@@ -245,6 +251,11 @@ public partial class LanTransport : INetTransport
     }
 
     public void Send(byte[] data, ulong targetId)
+    {
+        Send(data.AsSpan(), targetId);
+    }
+
+    public void Send(ReadOnlySpan<byte> data, ulong targetId)
     {
         if (!InRoom) return;
 
@@ -458,8 +469,8 @@ public partial class LanTransport : INetTransport
             var buf = ReadExact(stream, 16);
             if (buf == null) throw new Exception("Handshake failed");
 
-            LocalID = BitConverter.ToUInt64(buf, 0);
-            HostID = BitConverter.ToUInt64(buf, 8);
+            LocalID = BinaryPrimitives.ReadUInt64LittleEndian(buf.AsSpan(0, 8));
+            HostID = BinaryPrimitives.ReadUInt64LittleEndian(buf.AsSpan(8, 8));
 
             players[HostID] = new LanPlayerInfo
             {
@@ -532,14 +543,14 @@ public partial class LanTransport : INetTransport
         {
             var stream = tcp.GetStream();
             byte[] buf = new byte[16];
-            Array.Copy(BitConverter.GetBytes(id), 0, buf, 0, 8);
-            Array.Copy(BitConverter.GetBytes(hostId), 0, buf, 8, 8);
+            BinaryPrimitives.WriteUInt64LittleEndian(buf.AsSpan(0, 8), id);
+            BinaryPrimitives.WriteUInt64LittleEndian(buf.AsSpan(8, 8), hostId);
             stream.Write(buf, 0, 16);
         }
         catch { }
     }
 
-    private void SendFrame(NetworkStream stream, PacketType type, ulong senderId, byte[] payload)
+    private void SendFrame(NetworkStream stream, PacketType type, ulong senderId, ReadOnlySpan<byte> payload)
     {
         try
         {
@@ -547,10 +558,10 @@ public partial class LanTransport : INetTransport
             byte[] fullPacket = new byte[totalLen];
 
             fullPacket[0] = (byte)type;
-            Array.Copy(BitConverter.GetBytes(senderId), 0, fullPacket, 1, 8);
-            Array.Copy(BitConverter.GetBytes(payload.Length), 0, fullPacket, 9, 4);
-            if (payload.Length > 0)
-                Array.Copy(payload, 0, fullPacket, 13, payload.Length);
+            BinaryPrimitives.WriteUInt64LittleEndian(fullPacket.AsSpan(1, 8), senderId);
+            BinaryPrimitives.WriteInt32LittleEndian(fullPacket.AsSpan(9, 4), payload.Length);
+            if (!payload.IsEmpty)
+                payload.CopyTo(fullPacket.AsSpan(13));
 
             stream.Write(fullPacket, 0, totalLen);
         }
@@ -576,8 +587,8 @@ public partial class LanTransport : INetTransport
             var lenBuf = ReadExact(stream, 4);
             if (sid == null || lenBuf == null) return false;
 
-            sender = BitConverter.ToUInt64(sid, 0);
-            int len = BitConverter.ToInt32(lenBuf, 0);
+            sender = BinaryPrimitives.ReadUInt64LittleEndian(sid);
+            int len = BinaryPrimitives.ReadInt32LittleEndian(lenBuf);
 
             if (len < 0 || len > 1024 * 1024 * 10) // 10MB Limit
                 return false;

@@ -13,7 +13,15 @@ public partial interface INetTransport
     void JoinRoom(string roomId);
     void LeaveRoom();
     bool AmIHost();
+    void Send(ReadOnlySpan<byte> data, SendType type)
+    {
+        Send(data.ToArray(), type);
+    }
     void Send(byte[] data, SendType type);
+    void Send(ReadOnlySpan<byte> data, ulong id)
+    {
+        Send(data.ToArray(), id);
+    }
     void Send(byte[] data, ulong id);
     void Poll();
 

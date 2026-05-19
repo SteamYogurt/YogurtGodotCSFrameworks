@@ -7,10 +7,10 @@ public partial class Player : Node, INetObject
     [Export]
     public ObjectInfo Info { get; set; }
 
-    public readonly NetVar id = new((ulong)0);
-    public readonly NetVar name = new(string.Empty);
+    public readonly NetVar playerId = new((ulong)0);
+    public readonly NetVar playerName = new(string.Empty);
     public readonly NetVar localSlotIndex = new(0);
-    public readonly NetVar ready = new(false);
+    public readonly NetVar isReady = new(false);
 
     private List<NetVar> _fullStateVars;
     private readonly List<NetVar> _inputStateVars = new();
@@ -18,14 +18,14 @@ public partial class Player : Node, INetObject
 
     public ulong PlayerId
     {
-        get => (ulong)id.Value;
-        set => id.Value = value;
+        get => (ulong)playerId.Value;
+        set => playerId.Value = value;
     }
 
     public string PlayerName
     {
-        get => (string)name.Value;
-        set => name.Value = value;
+        get => (string)playerName.Value;
+        set => playerName.Value = value;
     }
 
     public int LocalSlotIndex
@@ -36,13 +36,13 @@ public partial class Player : Node, INetObject
 
     public bool IsReady
     {
-        get => (bool)ready.Value;
-        set => ready.Value = value;
+        get => (bool)isReady.Value;
+        set => isReady.Value = value;
     }
 
     public void HostInitialize()
     {
-        ready.Value = false;
+        IsReady = false;
     }
 
     public bool HasAuthority()
@@ -66,10 +66,10 @@ public partial class Player : Node, INetObject
     {
         _fullStateVars ??= new List<NetVar>
         {
-            id,
-            name,
+            playerId,
+            playerName,
             localSlotIndex,
-            ready
+            isReady
         };
 
         return _fullStateVars;

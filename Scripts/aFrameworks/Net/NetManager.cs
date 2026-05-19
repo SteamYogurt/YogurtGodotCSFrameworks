@@ -55,9 +55,10 @@ public partial class NetManager : Singleton<NetManager>
     public Action<string> EventCb = (_) => { };
     public Action<string, ulong> EventWithSenderCb = (_, __) => { };
 
-    private byte[] contentData; // 用于房主转发的缓存
-    private NetMsgType readHead;
+    private ArraySegment<byte> forwardedContent = default;
+    private NetMsgType forwardedHead;
     private int accum = 0;
+    private static readonly Encoding Utf8 = Encoding.UTF8;
     #endregion
 
     #region lifecycle
@@ -122,16 +123,16 @@ public partial class NetManager : Singleton<NetManager>
     #endregion
 
     #region trans
-    private void InternalSend(Span<byte> data, SendType type)
+    private void InternalSend(ReadOnlySpan<byte> data, SendType type)
     {
         if (transportManager?.Current == null) return;
-        transportManager.Current.Send(data.ToArray(), type);
+        transportManager.Current.Send(data, type);
     }
 
     /// <summary>
     /// 核心：给消息包装 4 字节的长度前缀 [Length][Body]
     /// </summary>
-    private void SendPackedMessage(Span<byte> body, SendType type = SendType.AllOthers)
+    private void SendPackedMessage(ReadOnlySpan<byte> body, SendType type = SendType.AllOthers)
     {
         int len = body.Length;
         byte[] packet = new byte[len + 4];
@@ -145,45 +146,46 @@ public partial class NetManager : Singleton<NetManager>
     /// </summary>
     private void Forward(SendType sendType)
     {
-        if (contentData == null) return;
-        int bodyLen = 1 + contentData.Length;
+        if (forwardedContent.Array == null) return;
+        int bodyLen = 1 + forwardedContent.Count;
         byte[] packet = new byte[4 + bodyLen];
         BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(0, 4), (uint)bodyLen);
-        packet[4] = (byte)readHead;
-        contentData.CopyTo(packet.AsSpan(5));
+        packet[4] = (byte)forwardedHead;
+        forwardedContent.AsSpan().CopyTo(packet.AsSpan(5));
         InternalSend(packet, sendType);
     }
     #endregion
 
     #region (AnalyseStream)
-    private List<byte> _receiveBuffer = new();
+    private readonly List<byte> _receiveBuffer = new();
     public void AnalyseStream(byte[] bytes)
     {
+        AnalyseStream(bytes.AsSpan());
+    }
+
+    public void AnalyseStream(ReadOnlySpan<byte> bytes)
+    {
         if (!active) return;
-        _receiveBuffer.AddRange(bytes); // 将新到的字节加入缓存
+        for (int i = 0; i < bytes.Length; i++)
+            _receiveBuffer.Add(bytes[i]);
 
         while (_receiveBuffer.Count >= 4)
         {
-            byte[] bufferArray = _receiveBuffer.ToArray();
-            uint length = BinaryPrimitives.ReadUInt32LittleEndian(bufferArray.AsSpan(0, 4));
+            uint length = BinaryPrimitives.ReadUInt32LittleEndian(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_receiveBuffer).Slice(0, 4));
             if (_receiveBuffer.Count < 4 + length) break; // 数据还没收全，跳出循环等待下一次
-            // --- 核心改动：局部变量处理 ---
-            NetMsgType currentHead = (NetMsgType)bufferArray[4];
-            byte[] currentContent = length > 1
-                ? _receiveBuffer.GetRange(5, (int)length - 1).ToArray()
-                : Array.Empty<byte>();
+            byte[] packet = _receiveBuffer.GetRange(4, (int)length).ToArray();
+            NetMsgType currentHead = (NetMsgType)packet[0];
+            var currentContent = new ArraySegment<byte>(packet, 1, Math.Max(packet.Length - 1, 0));
 
-            // 临时赋值给全局，兼容旧的 Forward() 逻辑
-            this.readHead = currentHead;
-            this.contentData = currentContent;
+            forwardedHead = currentHead;
+            forwardedContent = currentContent;
 
             // 移除已处理的数据
             _receiveBuffer.RemoveRange(0, 4 + (int)length);
 
-            // --- 派发消息 ---
-            Span<byte> contentSpan = currentContent;
+            ReadOnlySpan<byte> contentSpan = currentContent.AsSpan();
 
-            switch (readHead)
+            switch (currentHead)
             {
                 case NetMsgType.Event: ReadEvent(contentSpan); break;
                 case NetMsgType.EventWithSender: ReadEventWithSender(contentSpan); break;
@@ -204,7 +206,7 @@ public partial class NetManager : Singleton<NetManager>
     #region (String Events)
     public void SendEvent(string evt, NetEventSendType sendType)
     {
-        byte[] evtBytes = Encoding.UTF8.GetBytes(evt);
+        byte[] evtBytes = Utf8.GetBytes(evt);
         byte[] buffer = new byte[2 + 4 + evtBytes.Length];
         buffer[0] = (byte)NetMsgType.Event;
         buffer[1] = (byte)sendType;
@@ -214,7 +216,7 @@ public partial class NetManager : Singleton<NetManager>
         SendPackedMessage(buffer, GetEventTarget(sendType));
     }
 
-    private void ReadEvent(Span<byte> content)
+    private void ReadEvent(ReadOnlySpan<byte> content)
     {
         NetEventSendType sendType = (NetEventSendType)content[0];
 
@@ -222,7 +224,7 @@ public partial class NetManager : Singleton<NetManager>
         {
             ulong targetId = BinaryPrimitives.ReadUInt64LittleEndian(content.Slice(1, 8));
             int strLen = BinaryPrimitives.ReadInt32LittleEndian(content.Slice(9, 4));
-            string evt = Encoding.UTF8.GetString(content.Slice(13, strLen));
+            string evt = Utf8.GetString(content.Slice(13, strLen));
 
             // 如果我就是目标接收者，触发回调
             if (transportManager.Current.LocalID == targetId)
@@ -233,15 +235,17 @@ public partial class NetManager : Singleton<NetManager>
             // 如果我是主机且目标不是我，执行中转
             if (transportManager.Current.AmIHost() && targetId != transportManager.Current.LocalID)
             {
-                // 重新包装并发送给指定目标
-                transportManager.Current.Send(PackBody(content.ToArray()), targetId);
+                byte[] packet = new byte[content.Length + 4];
+                BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(0, 4), (uint)content.Length);
+                content.CopyTo(packet.AsSpan(4));
+                transportManager.Current.Send(packet, targetId);
             }
         }
         else
         {
             // 原有的逻辑
             int strLen = BinaryPrimitives.ReadInt32LittleEndian(content.Slice(1, 4));
-            string evt = Encoding.UTF8.GetString(content.Slice(5, strLen));
+            string evt = Utf8.GetString(content.Slice(5, strLen));
             EventCb?.Invoke(evt);
 
             if (transportManager.Current.AmIHost())
@@ -254,7 +258,7 @@ public partial class NetManager : Singleton<NetManager>
 
     public void SendEventWithSender(string evt, NetEventSendType sendType)
     {
-        byte[] evtBytes = Encoding.UTF8.GetBytes(evt);
+        byte[] evtBytes = Utf8.GetBytes(evt);
         byte[] buffer = new byte[2 + 8 + 4 + evtBytes.Length];
         buffer[0] = (byte)NetMsgType.EventWithSender;
         buffer[1] = (byte)sendType;
@@ -265,12 +269,12 @@ public partial class NetManager : Singleton<NetManager>
         SendPackedMessage(buffer, GetEventTarget(sendType));
     }
 
-    private void ReadEventWithSender(Span<byte> content)
+    private void ReadEventWithSender(ReadOnlySpan<byte> content)
     {
         NetEventSendType sendType = (NetEventSendType)content[0];
         ulong senderId = BinaryPrimitives.ReadUInt64LittleEndian(content.Slice(1, 8));
         int strLen = BinaryPrimitives.ReadInt32LittleEndian(content.Slice(9, 4));
-        string evt = Encoding.UTF8.GetString(content.Slice(13, strLen));
+        string evt = Utf8.GetString(content.Slice(13, strLen));
 
         EventWithSenderCb?.Invoke(evt, senderId);
 
@@ -289,7 +293,7 @@ public partial class NetManager : Singleton<NetManager>
 
     public void SendEventToPlayer(ulong targetPeerId, string evt)
     {
-        byte[] evtBytes = Encoding.UTF8.GetBytes(evt);
+        byte[] evtBytes = Utf8.GetBytes(evt);
         // 布局: [MsgType][SendType][TargetID][StrLen][Data]
         // 长度: 1 + 1 + 8 + 4 + data
         byte[] buffer = new byte[1 + 1 + 8 + 4 + evtBytes.Length];
@@ -307,13 +311,13 @@ public partial class NetManager : Singleton<NetManager>
         }
         else
         {
-            // 只有主机能执行特定的 PeerId 发送
-            transportManager.Current.Send(PackBody(buffer), targetPeerId);
+            byte[] packet = PackBody(buffer);
+            transportManager.Current.Send(packet, targetPeerId);
         }
     }
 
     // 辅助工具：用于为主机手动发送特定 Peer 时包装长度前缀
-    private byte[] PackBody(Span<byte> body)
+    private byte[] PackBody(ReadOnlySpan<byte> body)
     {
         byte[] packet = new byte[body.Length + 4];
         BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(0, 4), (uint)body.Length);
@@ -362,7 +366,7 @@ public partial class NetManager : Singleton<NetManager>
     private byte[] PackSpawnMessage(INetObject obj, uint id)
     {
         // 1. 序列化字符串
-        byte[] nameBytes = Encoding.UTF8.GetBytes(obj.Info.ObjectName);
+        byte[] nameBytes = Utf8.GetBytes(obj.Info.ObjectName);
         int spawnBodyLen = 1 + 4 + 4 + nameBytes.Length; // Header + ID + StrLen + Data
 
         // 2. 序列化初始变量
@@ -405,17 +409,17 @@ public partial class NetManager : Singleton<NetManager>
         return finalResult;
     }
 
-    private void ReadSpawnObj(Span<byte> content)
+    private void ReadSpawnObj(ReadOnlySpan<byte> content)
     {
         uint id = BinaryPrimitives.ReadUInt32LittleEndian(content.Slice(0, 4));
         int nameLen = BinaryPrimitives.ReadInt32LittleEndian(content.Slice(4, 4));
-        string objName = Encoding.UTF8.GetString(content.Slice(8, nameLen));
+        string objName = Utf8.GetString(content.Slice(8, nameLen));
 
         var obj = ObjectPoolManager.GetPossibleObject<INetObject>(objName);
         lazyIdToObject[id] = obj;
     }
 
-    private void ReadObjInitialPacket(Span<byte> content)
+    private void ReadObjInitialPacket(ReadOnlySpan<byte> content)
     {
         uint id = BinaryPrimitives.ReadUInt32LittleEndian(content.Slice(0, 4));
         if (idToObject.ContainsKey(id))
@@ -443,7 +447,7 @@ public partial class NetManager : Singleton<NetManager>
 
             if (fullVars != null && i < fullVars.Count)
             {
-                fullVars[i].Value = GD.BytesToVar(slice);
+                fullVars[i].Value = ReadVariant(slice);
                 fullVars[i].ClearDirty();
             }
         }
@@ -470,7 +474,7 @@ public partial class NetManager : Singleton<NetManager>
         RemoveNetObject(netObject);
     }
 
-    private void ReadDestroyObj(Span<byte> content)
+    private void ReadDestroyObj(ReadOnlySpan<byte> content)
     {
         uint id = BinaryPrimitives.ReadUInt32LittleEndian(content);
         var obj = GetNetObject(id);
@@ -530,7 +534,7 @@ public partial class NetManager : Singleton<NetManager>
         SendPackedMessage(buffer);
     }
 
-    private void ReadObjStateData(Span<byte> content)
+    private void ReadObjStateData(ReadOnlySpan<byte> content)
     {
         uint id = BinaryPrimitives.ReadUInt32LittleEndian(content.Slice(0, 4));
         var obj = GetNetObject(id);
@@ -550,7 +554,7 @@ public partial class NetManager : Singleton<NetManager>
                 int len = BinaryPrimitives.ReadInt32LittleEndian(content.Slice(pos, 4)); pos += 4;
                 if (!vars[i].authorityIgnore || !obj.HasAuthority())
                 {
-                    vars[i].Value = GD.BytesToVar(content.Slice(pos, len));
+                    vars[i].Value = ReadVariant(content.Slice(pos, len));
                     vars[i].ClearDirty();
                 }
                 pos += len;
@@ -596,7 +600,7 @@ public partial class NetManager : Singleton<NetManager>
         SendPackedMessage(buffer.AsSpan(0, p), SendType.Host);
     }
 
-    private void ReadInputData(Span<byte> content)
+    private void ReadInputData(ReadOnlySpan<byte> content)
     {
         uint id = BinaryPrimitives.ReadUInt32LittleEndian(content.Slice(0, 4));
         var obj = GetNetObject(id);
@@ -615,7 +619,7 @@ public partial class NetManager : Singleton<NetManager>
             if ((mask & (1UL << i)) != 0)
             {
                 int len = BinaryPrimitives.ReadInt32LittleEndian(content.Slice(pos, 4)); pos += 4;
-                vars[i].Value = GD.BytesToVar(content.Slice(pos, len));
+                vars[i].Value = ReadVariant(content.Slice(pos, len));
                 pos += len;
             }
         }
@@ -675,7 +679,7 @@ public partial class NetManager : Singleton<NetManager>
         }
     }
 
-    private void ReadCustomize(Span<byte> content)
+    private void ReadCustomize(ReadOnlySpan<byte> content)
     {
         NetCustomPacketSendType sendType = (NetCustomPacketSendType)content[0];
         uint netId = BinaryPrimitives.ReadUInt32LittleEndian(content.Slice(1, 4));
@@ -743,7 +747,7 @@ public partial class NetManager : Singleton<NetManager>
             (sendType == RPCSendType.ToAllExceptSender ? SendType.OthersExceptSender : SendType.AllOthers));
     }
 
-    private void ReadRPC(Span<byte> content)
+    private void ReadRPC(ReadOnlySpan<byte> content)
     {
         RPCSendType sendType = (RPCSendType)content[0];
         uint netId = BinaryPrimitives.ReadUInt32LittleEndian(content.Slice(1, 4));
@@ -755,7 +759,7 @@ public partial class NetManager : Singleton<NetManager>
         for (int i = 0; i < argc; i++)
         {
             int len = BinaryPrimitives.ReadInt32LittleEndian(content.Slice(pos, 4)); pos += 4;
-            args[i] = GD.BytesToVar(content.Slice(pos, len).ToArray());
+            args[i] = ReadVariant(content.Slice(pos, len));
             pos += len;
         }
 
@@ -786,7 +790,7 @@ public partial class NetManager : Singleton<NetManager>
         SendPackedMessage(buf, SendType.Host);
     }
 
-    private void ReadPing(Span<byte> content)
+    private void ReadPing(ReadOnlySpan<byte> content)
     {
         if (!transportManager.Current.AmIHost()) return;
         byte[] pong = new byte[1 + content.Length];
@@ -795,7 +799,7 @@ public partial class NetManager : Singleton<NetManager>
         SendPackedMessage(pong, SendType.AllOthers);
     }
 
-    private void ReadPong(Span<byte> content)
+    private void ReadPong(ReadOnlySpan<byte> content)
     {
         long sendTime = BinaryPrimitives.ReadInt64LittleEndian(content);
         long rtt = (long)Time.GetTicksMsec() - sendTime;
@@ -810,6 +814,7 @@ public partial class NetManager : Singleton<NetManager>
         foreach (var b in list) sum += b.Length;
         return sum;
     }
+    private static Variant ReadVariant(ReadOnlySpan<byte> data) => GD.BytesToVar(data.ToArray());
     public uint GetID(INetObject netObject) => objectToId.TryGetValue(netObject, out var id) ? id : 0;
     public INetObject GetNetObject(uint id) => idToObject.TryGetValue(id, out var obj) ? obj : null;
     public void RemoveNetObject(INetObject obj)
@@ -869,9 +874,9 @@ public partial class NetManager : Singleton<NetManager>
         GD.Print($"Next ID Candidate: {_GetNextIdPreview()}");
 
         GD.Print("----- Last Packet State -----");
-        GD.Print($"Last Read Header: {readHead}");
-        GD.Print($"ContentData Null: {contentData == null}");
-        GD.Print($"ContentData Length: {contentData?.Length ?? 0}");
+        GD.Print($"Last Read Header: {forwardedHead}");
+        GD.Print($"ContentData Null: {forwardedContent.Array == null}");
+        GD.Print($"ContentData Length: {forwardedContent.Count}");
 
         GD.Print("==============================================");
     }

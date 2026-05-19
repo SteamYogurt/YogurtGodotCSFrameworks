@@ -67,7 +67,7 @@ public partial class Game : Node,INetObject
     public CanvasLayer canvasLayer;
     public GameUI gameUI;
 
-    NetVar isOnline = new NetVar(false);
+    readonly NetVar isOnline = new(false);
     public bool IsOnline
     {
         get
@@ -80,9 +80,10 @@ public partial class Game : Node,INetObject
         }
     }
     #region Players
-    public List<Player> players = new List<Player>();
+    readonly List<Player> players = new();
     public List<Player> Players => players;
-    public Player localPlayer;
+    public Player LocalPlayer => localPlayer;
+    Player localPlayer;
     public event Action PlayersChanged;
     public event Action LocalPlayerChanged;
     void UpdateLocalPlayer()
@@ -96,7 +97,7 @@ public partial class Game : Node,INetObject
             {
                 foreach (Player player in players)
                 {
-                    if ((ulong)player.id.Value == local)
+                    if (player.PlayerId == local)
                     {
                         nextLocalPlayer = player;
                         break;
@@ -120,7 +121,7 @@ public partial class Game : Node,INetObject
     {
         foreach (Player player in players)
         {
-            if ((ulong)player.id.Value == playerID) return player;
+            if (player.PlayerId == playerID) return player;
         }
         return null;
     }
@@ -129,11 +130,11 @@ public partial class Game : Node,INetObject
         if (player == null)
             return;
 
-        // 防止重复添加（按 player.id）
+        // 防止重复添加（按 playerId）
         try
         {
-            ulong pid = (ulong)player.id.Value;
-            if (players.Any(p => (ulong)p.id.Value == pid))
+            ulong pid = player.PlayerId;
+            if (players.Any(p => p.PlayerId == pid))
             {
                 Main.Print($"AddPlayer: player {pid} 已存在，忽略重复添加");
                 return;
@@ -169,7 +170,7 @@ public partial class Game : Node,INetObject
     }
     public void OnNetTransPlayerListChanged()
     {
-        if (!isAuthorized) return;
+        if (!IsAuthorized) return;
         if (Game.instance == null) return;
         var transport = TransportManager.Instance?.Current;
         if (transport == null)
@@ -185,11 +186,11 @@ public partial class Game : Node,INetObject
             .GroupBy(p => p.id)
             .ToDictionary(g => g.Key, g => g.First());
         List<Player> playerToRemove = players
-            .Where(p => !netPlayerDict.ContainsKey((ulong)p.id.Value))
+            .Where(p => !netPlayerDict.ContainsKey(p.PlayerId))
             .ToList();
         var playerDict = players
             .Where(p => p != null)
-            .GroupBy(p => (ulong)p.id.Value)
+            .GroupBy(p => p.PlayerId)
             .ToDictionary(g => g.Key, g => g.First());
         List<INetTransportPlayerInfo> playerToAdd = pList
             .Where(p => !playerDict.ContainsKey(p.id))
@@ -212,12 +213,12 @@ public partial class Game : Node,INetObject
                     GD.PrintErr($"无法创建Player对象: {pInfo.id}");
                     continue;
                 }
-                player.id.Value = pInfo.id;
-                player.name.Value = string.IsNullOrWhiteSpace(pInfo.name)
+                player.PlayerId = pInfo.id;
+                player.PlayerName = string.IsNullOrWhiteSpace(pInfo.name)
                     ? $"Player_{pInfo.id}"
                     : pInfo.name;
-                player.localSlotIndex.Value = GetNextLocalSlotIndex();
-                player.ready.Value = false;
+                player.LocalSlotIndex = GetNextLocalSlotIndex();
+                player.IsReady = false;
                 AuthorizedNetSpawn(player, true);
             }
         }
@@ -242,8 +243,9 @@ public partial class Game : Node,INetObject
     #endregion
 
     #region State
-    public bool isAuthorized = true;
-    public NetVar midJoinable = new NetVar();
+    bool isAuthorized = true;
+    readonly NetVar midJoinable = new();
+    public bool IsAuthorized => isAuthorized;
     public bool MidJoinable
     {
         get
@@ -256,7 +258,7 @@ public partial class Game : Node,INetObject
             GameStateChanged?.Invoke();
         }
     }
-    public NetVar maxPlayerCount = new NetVar();
+    readonly NetVar maxPlayerCount = new();
     public int MaxPlayerCount
     {
         get
@@ -337,10 +339,10 @@ public partial class Game : Node,INetObject
             var player = ObjectPoolManager.GetPossibleObject<Player>("player");
             if (player != null)
             {
-                player.id.Value = 0UL;
-                player.name.Value = "LocalPlayer";
-                player.localSlotIndex.Value = 0;
-                player.ready.Value = true;
+                player.PlayerId = 0UL;
+                player.PlayerName = "LocalPlayer";
+                player.LocalSlotIndex = 0;
+                player.IsReady = true;
                 AuthorizedNetSpawn(player, IsOnline);
             }
         }
@@ -363,7 +365,7 @@ public partial class Game : Node,INetObject
     }
     public override void _UnhandledInput(InputEvent @event)
     {
-        if (!isAuthorized) return;
+        if (!IsAuthorized) return;
         if(@event is InputEventKey key && key.Pressed && !key.IsEcho())
         {
             if(key.Keycode == Key.X)
@@ -434,7 +436,7 @@ public partial class Game : Node,INetObject
     int GetNextLocalSlotIndex()
     {
         int slot = 0;
-        var usedSlots = new HashSet<int>(players.Select(p => (int)p.localSlotIndex.Value));
+        var usedSlots = new HashSet<int>(players.Select(p => p.LocalSlotIndex));
         while (usedSlots.Contains(slot))
         {
             slot++;

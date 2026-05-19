@@ -111,6 +111,11 @@ public partial class SteamTransport : INetTransport
 
     public void Send(byte[] data, SendType type)
     {
+        Send(data.AsSpan(), type);
+    }
+
+    public void Send(ReadOnlySpan<byte> data, SendType type)
+    {
         if (!InRoom) return;
 
         ulong myID = LocalID;
@@ -136,6 +141,11 @@ public partial class SteamTransport : INetTransport
     }
 
     public void Send(byte[] data, ulong targetSteamID)
+    {
+        Send(data.AsSpan(), targetSteamID);
+    }
+
+    public void Send(ReadOnlySpan<byte> data, ulong targetSteamID)
     {
         SteamNetworkingIdentity identity = new SteamNetworkingIdentity();
         identity.SetSteamID(new CSteamID(targetSteamID));
