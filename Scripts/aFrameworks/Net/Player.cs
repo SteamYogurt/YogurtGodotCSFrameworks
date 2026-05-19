@@ -9,8 +9,9 @@ public partial class Player : Node, INetObject
 
     public readonly NetVar playerId = new((ulong)0);
     public readonly NetVar playerName = new(string.Empty);
-    public readonly NetVar localSlotIndex = new(0);
+    public readonly NetVar isLocal = new(false);
     public readonly NetVar isReady = new(false);
+    private int _localSlotIndex = -1;
 
     private List<NetVar> _fullStateVars;
     private readonly List<NetVar> _inputStateVars = new();
@@ -30,8 +31,14 @@ public partial class Player : Node, INetObject
 
     public int LocalSlotIndex
     {
-        get => (int)localSlotIndex.Value;
-        set => localSlotIndex.Value = value;
+        get => _localSlotIndex;
+        set => _localSlotIndex = value;
+    }
+
+    public bool IsLocal
+    {
+        get => (bool)isLocal.Value;
+        set => isLocal.Value = value;
     }
 
     public bool IsReady
@@ -68,7 +75,7 @@ public partial class Player : Node, INetObject
         {
             playerId,
             playerName,
-            localSlotIndex,
+            isLocal,
             isReady
         };
 

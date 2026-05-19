@@ -44,6 +44,7 @@ public partial class NetManager : Singleton<NetManager>
     private Dictionary<uint, INetObject> idToObject = new();
     private Dictionary<INetObject, uint> objectToId = new();
     private Dictionary<uint, INetObject> lazyIdToObject = new();
+    private HashSet<uint> pendingDestroyIds = new();
     public NetworkIdGenerator idGenerator = new NetworkIdGenerator();
 
     public TransportManager transportManager;
@@ -69,6 +70,7 @@ public partial class NetManager : Singleton<NetManager>
         idToObject.Clear();
         objectToId.Clear();
         lazyIdToObject.Clear();
+        pendingDestroyIds.Clear();
         idGenerator = new NetworkIdGenerator();
         AvgRTT = 0;
     }
@@ -235,9 +237,10 @@ public partial class NetManager : Singleton<NetManager>
             // 如果我是主机且目标不是我，执行中转
             if (transportManager.Current.AmIHost() && targetId != transportManager.Current.LocalID)
             {
-                byte[] packet = new byte[content.Length + 4];
-                BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(0, 4), (uint)content.Length);
-                content.CopyTo(packet.AsSpan(4));
+                byte[] packet = new byte[content.Length + 5];
+                BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(0, 4), (uint)(content.Length + 1));
+                packet[4] = (byte)NetMsgType.Event;
+                content.CopyTo(packet.AsSpan(5));
                 transportManager.Current.Send(packet, targetId);
             }
         }
@@ -470,6 +473,7 @@ public partial class NetManager : Singleton<NetManager>
         byte[] buffer = new byte[1 + 4];
         buffer[0] = (byte)NetMsgType.DestroyObj;
         BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(1, 4), id);
+        pendingDestroyIds.Add(id);
         SendPackedMessage(buffer, SendType.AllOthers);
         RemoveNetObject(netObject);
     }
@@ -477,6 +481,15 @@ public partial class NetManager : Singleton<NetManager>
     private void ReadDestroyObj(ReadOnlySpan<byte> content)
     {
         uint id = BinaryPrimitives.ReadUInt32LittleEndian(content);
+        pendingDestroyIds.Remove(id);
+
+        if (lazyIdToObject.TryGetValue(id, out var lazyObj))
+        {
+            lazyIdToObject.Remove(id);
+            lazyObj.INetDestroy();
+            return;
+        }
+
         var obj = GetNetObject(id);
         if (obj != null)
         {
@@ -823,6 +836,7 @@ public partial class NetManager : Singleton<NetManager>
         idGenerator.ReleaseId(id);
         objectToId.Remove(obj);
         idToObject.Remove(id);
+        pendingDestroyIds.Remove(id);
     }
     #endregion
 

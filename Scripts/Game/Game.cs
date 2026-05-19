@@ -5,6 +5,10 @@ using Godot;
 public partial class Game : Node,INetObject
 {
     public static Game instance;
+    private readonly Dictionary<ulong, Player> _playersById = new();
+    private readonly List<Player> _localPlayers = new();
+    private readonly HashSet<ulong> _pendingPlayerDestroyIds = new();
+
     public static void AuthorizedNetSpawn(INetObject netObject, bool isOnline)
     {
         if (isOnline && TransportManager.Instance?.Current?.AmIHost() == false)
@@ -82,48 +86,17 @@ public partial class Game : Node,INetObject
     #region Players
     readonly List<Player> players = new();
     public List<Player> Players => players;
-    public Player LocalPlayer => localPlayer;
-    Player localPlayer;
+    public List<Player> LocalPlayers => _localPlayers;
     public event Action PlayersChanged;
     public event Action LocalPlayerChanged;
     void UpdateLocalPlayer()
     {
-        Player nextLocalPlayer = null;
-
-        if (IsOnline)
-        {
-            var local = TransportManager.Instance?.Current?.LocalID;
-            if (local != null)
-            {
-                foreach (Player player in players)
-                {
-                    if (player.PlayerId == local)
-                    {
-                        nextLocalPlayer = player;
-                        break;
-                    }
-                }
-            }
-        }
-        else
-        {
-            if (players.Count > 0)
-                nextLocalPlayer = players[0];
-        }
-
-        if (localPlayer != nextLocalPlayer)
-        {
-            localPlayer = nextLocalPlayer;
-            LocalPlayerChanged?.Invoke();
-        }
+        RefreshLocalPlayers();
+        LocalPlayerChanged?.Invoke();
     }
     public Player GetPlayer(ulong playerID)
     {
-        foreach (Player player in players)
-        {
-            if (player.PlayerId == playerID) return player;
-        }
-        return null;
+        return _playersById.TryGetValue(playerID, out var player) ? player : null;
     }
     public void AddPlayer(Player player, bool notice = true)
     {
@@ -131,19 +104,27 @@ public partial class Game : Node,INetObject
             return;
 
         // 防止重复添加（按 playerId）
+        ulong pid;
         try
         {
-            ulong pid = player.PlayerId;
-            if (players.Any(p => p.PlayerId == pid))
+            pid = player.PlayerId;
+            if (_playersById.TryGetValue(pid, out var existingPlayer))
             {
-                Main.Print($"AddPlayer: player {pid} 已存在，忽略重复添加");
+                if (ReferenceEquals(existingPlayer, player))
+                    return;
+
+                GD.PrintErr($"AddPlayer: player {pid} 已存在，拒绝重复对象");
                 return;
             }
         }
         catch
         {
-            // ignore
+            GD.PrintErr("AddPlayer: 读取 PlayerId 失败");
+            return;
         }
+
+        _pendingPlayerDestroyIds.Remove(pid);
+        _playersById[pid] = player;
         players.Add(player);
         UpdateLocalPlayer();
         GD.Print("增加新玩家，总数: " + players.Count);
@@ -157,7 +138,16 @@ public partial class Game : Node,INetObject
         if (player == null)
             return;
 
-        players.Remove(player);
+        bool removed = players.Remove(player);
+        if (!removed)
+            return;
+
+        if (_playersById.TryGetValue(player.PlayerId, out var existingPlayer) && ReferenceEquals(existingPlayer, player))
+        {
+            _playersById.Remove(player.PlayerId);
+        }
+
+        _pendingPlayerDestroyIds.Remove(player.PlayerId);
         UpdateLocalPlayer();
         if (notice)
         {
@@ -166,7 +156,7 @@ public partial class Game : Node,INetObject
     }
     public bool IsGameEnableEnter()
     {
-        return MidJoinable && players.Count < MaxPlayerCount;
+        return MidJoinable && _playersById.Count < MaxPlayerCount;
     }
     public void OnNetTransPlayerListChanged()
     {
@@ -179,47 +169,52 @@ public partial class Game : Node,INetObject
         // 比对找出要减去和新增的player
         var pList = transport.GetTempNetPlayerInfos() ?? new List<INetTransportPlayerInfo>();
         Main.Print($"\n检测到trans层player变动，同步更新game层player；" +
-           $"\n更新前信息: \nplayers数:{players.Count} transPInfo数:{pList.Count}");
+           $"\n更新前信息: \nplayers数:{_playersById.Count} transPInfo数:{pList.Count}");
         Main.Print("");
         var localID = transport.LocalID;
         var netPlayerDict = pList
+            .Where(p => p != null)
             .GroupBy(p => p.id)
             .ToDictionary(g => g.Key, g => g.First());
-        List<Player> playerToRemove = players
+        List<Player> playerToRemove = _playersById.Values
+            .Where(p => p != null && !_pendingPlayerDestroyIds.Contains(p.PlayerId))
             .Where(p => !netPlayerDict.ContainsKey(p.PlayerId))
             .ToList();
-        var playerDict = players
-            .Where(p => p != null)
-            .GroupBy(p => p.PlayerId)
-            .ToDictionary(g => g.Key, g => g.First());
         List<INetTransportPlayerInfo> playerToAdd = pList
-            .Where(p => !playerDict.ContainsKey(p.id))
-            .GroupBy(p => p.id)
-            .Select(g => g.First())
+            .Where(p => !_playersById.ContainsKey(p.id))
+            .Where(p => !_pendingPlayerDestroyIds.Contains(p.id))
             .ToList();
         foreach (var player in playerToRemove)
         {
+            _pendingPlayerDestroyIds.Add(player.PlayerId);
             AuthorizedNetDestroy(player, true);
         }
-        if (IsGameEnableEnter())
+        int availableSlots = Mathf.Max(MaxPlayerCount - _playersById.Count - _pendingPlayerDestroyIds.Count, 0);
+        if (MidJoinable && availableSlots > 0)
         {
-            foreach (var pInfo in playerToAdd)
+            foreach (var pInfo in playerToAdd.Take(availableSlots))
             {
-                if (pInfo.id != localID)
-                    NetManager.Instance.SyncAllNetObjectsToPlayer(pInfo.id);
+                if (_playersById.ContainsKey(pInfo.id) || _pendingPlayerDestroyIds.Contains(pInfo.id))
+                    continue;
+
                 var player = ObjectPoolManager.GetPossibleObject<Player>("player");
                 if (player == null)
                 {
                     GD.PrintErr($"无法创建Player对象: {pInfo.id}");
                     continue;
                 }
+
                 player.PlayerId = pInfo.id;
                 player.PlayerName = string.IsNullOrWhiteSpace(pInfo.name)
                     ? $"Player_{pInfo.id}"
                     : pInfo.name;
-                player.LocalSlotIndex = GetNextLocalSlotIndex();
+                player.IsLocal = false;
+                player.LocalSlotIndex = -1;
                 player.IsReady = false;
                 AuthorizedNetSpawn(player, true);
+
+                if (pInfo.id != localID)
+                    NetManager.Instance.SyncAllNetObjectsToPlayer(pInfo.id);
             }
         }
         else
@@ -230,7 +225,7 @@ public partial class Game : Node,INetObject
                 NetManager.Instance.SendEventToPlayer(pInfo.id, "Kick");
             }
         }
-        if (players.Count > pList.Count)
+        if (_playersById.Count > pList.Count)
         {
             GD.PrintErr("更新列表后realPlayerCount > pList.Count");
         }
@@ -336,13 +331,8 @@ public partial class Game : Node,INetObject
         }
         else
         {
-            var player = ObjectPoolManager.GetPossibleObject<Player>("player");
-            if (player != null)
+            foreach (var player in CreateOfflineLocalPlayers())
             {
-                player.PlayerId = 0UL;
-                player.PlayerName = "LocalPlayer";
-                player.LocalSlotIndex = 0;
-                player.IsReady = true;
                 AuthorizedNetSpawn(player, IsOnline);
             }
         }
@@ -428,15 +418,50 @@ public partial class Game : Node,INetObject
             RemovePlayer(player, false);
         }
 
-        localPlayer = null;
+        _playersById.Clear();
+        _localPlayers.Clear();
+        _pendingPlayerDestroyIds.Clear();
         PlayersChanged?.Invoke();
         LocalPlayerChanged?.Invoke();
+    }
+
+    void RefreshLocalPlayers()
+    {
+        _localPlayers.Clear();
+        if (IsOnline)
+            return;
+
+        foreach (var player in players.Where(p => p != null && p.IsLocal).OrderBy(p => p.LocalSlotIndex))
+        {
+            _localPlayers.Add(player);
+        }
+    }
+
+    IEnumerable<Player> CreateOfflineLocalPlayers()
+    {
+        int playerCount = IsLocalCoop ? _localPlayerCount : 1;
+        for (int i = 0; i < playerCount; i++)
+        {
+            var player = ObjectPoolManager.GetPossibleObject<Player>("player");
+            if (player == null)
+            {
+                GD.PrintErr($"无法创建离线本地Player对象: slot {i}");
+                continue;
+            }
+
+            player.PlayerId = (ulong)i;
+            player.PlayerName = $"LocalPlayer{i + 1}";
+            player.IsLocal = true;
+            player.LocalSlotIndex = i;
+            player.IsReady = true;
+            yield return player;
+        }
     }
 
     int GetNextLocalSlotIndex()
     {
         int slot = 0;
-        var usedSlots = new HashSet<int>(players.Select(p => p.LocalSlotIndex));
+        var usedSlots = new HashSet<int>(players.Select(p => p.LocalSlotIndex).Where(p => p >= 0));
         while (usedSlots.Contains(slot))
         {
             slot++;
