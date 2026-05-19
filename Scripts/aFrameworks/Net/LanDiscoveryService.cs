@@ -258,7 +258,7 @@ public partial class LanDiscoveryService : Node
         if (game != null)
         {
             playerCount = game.Players?.Count ?? playerCount;
-            joinable = game.IsInBasement;
+            joinable = game.IsGameEnableEnter();
         }
 
         data = new LanRoomBroadcastData

@@ -34,12 +34,12 @@ public partial class Settings : Control
         {
             if (Visible)
             {
-                var first = Global.FindFirstFocusableNode(this);
-                first?.GrabFocus();
-                if (first == null)
-                {
-                    GD.PrintErr("settings 界面没找到可聚焦");
-                }
+                //var first = Global.FindFirstFocusableNode(this);
+                //first?.GrabFocus();
+                //if (first == null)
+                //{
+                //    GD.PrintErr("settings 界面没找到可聚焦");
+                //}
             }
         };
 

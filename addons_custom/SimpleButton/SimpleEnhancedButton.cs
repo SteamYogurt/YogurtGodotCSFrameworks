@@ -71,7 +71,7 @@ public partial class SimpleEnhancedButton : Button
 
     private void OnButtonDown()
     {
-        UIStatic.PlayClickEffect();
+        //UIStatic.PlayClickEffect();
         if (scalePress)
             _targetScale = new Vector2(pressScale, pressScale);
     }

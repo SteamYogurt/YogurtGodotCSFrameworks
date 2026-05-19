@@ -4,6 +4,18 @@ using Godot.Collections;
 
 public enum InputDeviceType { Kbm, Joypad }
 
+public readonly struct LocalInputContext
+{
+    public LocalInputContext(bool enabled, int localPlayerCount)
+    {
+        Enabled = enabled;
+        LocalPlayerCount = Mathf.Max(localPlayerCount, 1);
+    }
+
+    public bool Enabled { get; }
+    public int LocalPlayerCount { get; }
+}
+
 public partial class InputManager : Singleton<InputManager>
 {
     private const string SavePath = "user://input_config.tres";
@@ -12,23 +24,7 @@ public partial class InputManager : Singleton<InputManager>
     // --- 核心修复：使用 Array 存储多个默认绑定，防止“吞”掉备选键位 ---
     private Dictionary<string, Array<InputEvent>> _defaultKbmBindings = new();
     private Dictionary<string, Array<InputEvent>> _defaultJoypadBindings = new();
-    readonly string[] _localCoopActionNames =
-{
-        "move_left",
-        "move_right",
-        "move_down",
-        "move_up",
-        "aim_left",
-        "aim_right",
-        "aim_down",
-        "aim_up",
-        "firing",
-        "roll",
-        "knock",
-        "reload"
-    };
-
-    int _localCoopJoypadDevice = -1;
+    LocalInputContext _localInputContext = new(false, 1);
     public InputDeviceType LastUsedDevice { get; private set; } = InputDeviceType.Kbm;
 
     [Signal] public delegate void DeviceTypeChangedEventHandler(InputDeviceType newType);
@@ -316,6 +312,16 @@ public partial class InputManager : Singleton<InputManager>
 
     private void SaveConfig() => ResourceSaver.Save(_config, SavePath);
 
+    public void SetLocalInputContext(bool enabled, int localPlayerCount)
+    {
+        _localInputContext = new LocalInputContext(enabled, localPlayerCount);
+    }
+
+    public void ClearLocalInputContext()
+    {
+        _localInputContext = new LocalInputContext(false, 1);
+    }
+
     public void Vibrate(float weak = 0.5f, float strong = 0.0f, float duration = 0.1f, int device = 0)
     {
         if (!_config.VibrationEnabled || LastUsedDevice != InputDeviceType.Joypad) return;
@@ -326,13 +332,27 @@ public partial class InputManager : Singleton<InputManager>
 
     public InputDeviceType GetDeviceTypeForLocalSlot(int localSlotIndex)
     {
-        return TryGetAssignedJoypadDevice(localSlotIndex, out _)
+        return GetDeviceTypeForLocalSlot(localSlotIndex, _localInputContext);
+    }
+
+    public InputDeviceType GetDeviceTypeForLocalSlot(int localSlotIndex, LocalInputContext context)
+    {
+        if (context.Enabled)
+        {
+            return TryGetAssignedJoypadDevice(localSlotIndex, context, out _)
                 ? InputDeviceType.Joypad
                 : InputDeviceType.Kbm;
-        // return LastUsedDevice;
+        }
+
+        return LastUsedDevice;
     }
 
     bool TryGetAssignedJoypadDevice(int localSlotIndex, out int device)
+    {
+        return TryGetAssignedJoypadDevice(localSlotIndex, _localInputContext, out device);
+    }
+
+    bool TryGetAssignedJoypadDevice(int localSlotIndex, LocalInputContext context, out int device)
     {
         device = -1;
 
@@ -340,12 +360,12 @@ public partial class InputManager : Singleton<InputManager>
         if (joypads.Count <= 0)
             return false;
 
-        if (Game.instance != null && Game.instance.IsLocalCoop)
+        if (context.Enabled)
         {
             if (localSlotIndex < 0)
                 return false;
 
-            int localPlayerCount = Mathf.Max(Game.instance.LocalPlayerCount, 1);
+            int localPlayerCount = context.LocalPlayerCount;
 
             // 手柄足够：所有本地玩家都走手柄
             if (joypads.Count >= localPlayerCount)
@@ -384,6 +404,13 @@ public partial class InputManager : Singleton<InputManager>
     public int GetJoypadDeviceForLocalSlot(int localSlotIndex)
     {
         return TryGetAssignedJoypadDevice(localSlotIndex, out int device)
+            ? device
+            : -1;
+    }
+
+    public int GetJoypadDeviceForLocalSlot(int localSlotIndex, LocalInputContext context)
+    {
+        return TryGetAssignedJoypadDevice(localSlotIndex, context, out int device)
             ? device
             : -1;
     }

@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Net.NetworkInformation;
 using Godot;
 public partial class Game : Node,INetObject
 {
@@ -42,10 +41,22 @@ public partial class Game : Node,INetObject
     {
         TryFreeGameAndReturn("Host Quit");
     }
+    bool _localCoopEnabled;
+    int _localPlayerCount = 1;
+
+    public bool IsLocalCoop => _localCoopEnabled;
+    public int LocalPlayerCount => _localPlayerCount;
+    public bool IsInBasement => IsGameEnableEnter();
+
     public void SetupFromContext(GameContext context)
     {
+        context ??= new GameContext();
         MidJoinable = context.MidJoinable;
-        MaxPlayerCount = context.MaxPlayers;
+        MaxPlayerCount = Mathf.Max(context.MaxPlayers, 1);
+        _localCoopEnabled = context.LocalCoopEnabled;
+        _localPlayerCount = Mathf.Max(context.LocalPlayerCount, 1);
+        InputManager.Instance?.SetLocalInputContext(_localCoopEnabled, _localPlayerCount);
+        GameStateChanged?.Invoke();
     }
     public void HostInitialize()
     {
@@ -76,27 +87,34 @@ public partial class Game : Node,INetObject
     public event Action LocalPlayerChanged;
     void UpdateLocalPlayer()
     {
+        Player nextLocalPlayer = null;
+
         if (IsOnline)
         {
-            var local = TransportManager.Instance.Current.LocalID;
-            foreach (Player player in players)
+            var local = TransportManager.Instance?.Current?.LocalID;
+            if (local != null)
             {
-                if ((ulong)player.id.Value == local)
+                foreach (Player player in players)
                 {
-                    if(localPlayer != player)
+                    if ((ulong)player.id.Value == local)
                     {
-                        localPlayer = player;
-                        LocalPlayerChanged?.Invoke();
+                        nextLocalPlayer = player;
+                        break;
                     }
-                    break;
                 }
             }
         }
         else
         {
-            if (players.Count > 0) localPlayer = players[0];
+            if (players.Count > 0)
+                nextLocalPlayer = players[0];
         }
 
+        if (localPlayer != nextLocalPlayer)
+        {
+            localPlayer = nextLocalPlayer;
+            LocalPlayerChanged?.Invoke();
+        }
     }
     public Player GetPlayer(ulong playerID)
     {
@@ -108,6 +126,9 @@ public partial class Game : Node,INetObject
     }
     public void AddPlayer(Player player, bool notice = true)
     {
+        if (player == null)
+            return;
+
         // 防止重复添加（按 player.id）
         try
         {
@@ -132,6 +153,9 @@ public partial class Game : Node,INetObject
     }
     public void RemovePlayer(Player player, bool notice = true)
     {
+        if (player == null)
+            return;
+
         players.Remove(player);
         UpdateLocalPlayer();
         if (notice)
@@ -141,25 +165,36 @@ public partial class Game : Node,INetObject
     }
     public bool IsGameEnableEnter()
     {
-        return  MidJoinable;
+        return MidJoinable && players.Count < MaxPlayerCount;
     }
     public void OnNetTransPlayerListChanged()
     {
         if (!isAuthorized) return;
         if (Game.instance == null) return;
+        var transport = TransportManager.Instance?.Current;
+        if (transport == null)
+            return;
+
         // 比对找出要减去和新增的player
-        var pList = TransportManager.Instance.Current.GetTempNetPlayerInfos();
+        var pList = transport.GetTempNetPlayerInfos() ?? new List<INetTransportPlayerInfo>();
         Main.Print($"\n检测到trans层player变动，同步更新game层player；" +
            $"\n更新前信息: \nplayers数:{players.Count} transPInfo数:{pList.Count}");
         Main.Print("");
-        var localID = TransportManager.Instance.Current.LocalID;
-        var netPlayerDict = pList.ToDictionary(p => p.id);
+        var localID = transport.LocalID;
+        var netPlayerDict = pList
+            .GroupBy(p => p.id)
+            .ToDictionary(g => g.Key, g => g.First());
         List<Player> playerToRemove = players
             .Where(p => !netPlayerDict.ContainsKey((ulong)p.id.Value))
             .ToList();
-        var playerDict = players.ToDictionary(p => (ulong)p.id.Value);
+        var playerDict = players
+            .Where(p => p != null)
+            .GroupBy(p => (ulong)p.id.Value)
+            .ToDictionary(g => g.Key, g => g.First());
         List<INetTransportPlayerInfo> playerToAdd = pList
             .Where(p => !playerDict.ContainsKey(p.id))
+            .GroupBy(p => p.id)
+            .Select(g => g.First())
             .ToList();
         foreach (var player in playerToRemove)
         {
@@ -172,8 +207,17 @@ public partial class Game : Node,INetObject
                 if (pInfo.id != localID)
                     NetManager.Instance.SyncAllNetObjectsToPlayer(pInfo.id);
                 var player = ObjectPoolManager.GetPossibleObject<Player>("player");
+                if (player == null)
+                {
+                    GD.PrintErr($"无法创建Player对象: {pInfo.id}");
+                    continue;
+                }
                 player.id.Value = pInfo.id;
-                player.name.Value = pInfo.name;
+                player.name.Value = string.IsNullOrWhiteSpace(pInfo.name)
+                    ? $"Player_{pInfo.id}"
+                    : pInfo.name;
+                player.localSlotIndex.Value = GetNextLocalSlotIndex();
+                player.ready.Value = false;
                 AuthorizedNetSpawn(player, true);
             }
         }
@@ -227,7 +271,7 @@ public partial class Game : Node,INetObject
     }
     void UpdateState()
     {
-        isAuthorized = !IsOnline || TransportManager.Instance.Current.AmIHost();
+        isAuthorized = !IsOnline || TransportManager.Instance?.Current?.AmIHost() == true;
         GameStateChanged?.Invoke();
     }
     public event Action GameStateChanged;
@@ -262,25 +306,26 @@ public partial class Game : Node,INetObject
   
     public override void _Ready()
     {
-        if (IsOnline)
+        if (IsOnline && TransportManager.Instance?.Current != null)
         {
             TransportManager.Instance.Current.HostQuit += OnHostQuit;
-        }
-        if (isAuthorized)
-        {
         }
     }
     public override void _EnterTree()
     {
         instance = this;
         UpdateState();
+        InputManager.Instance?.SetLocalInputContext(_localCoopEnabled, _localPlayerCount);
 
         canvasLayer = new CanvasLayer();
         AddChild(canvasLayer);
-        gameUI = Global.GetObj<GameUI>("res://Scene/UI/GameUI/GameUI.tscn");
-        canvasLayer.AddChild(gameUI);
+        if (ResourceLoader.Exists("res://Scene/UI/GameUI/GameUI.tscn"))
+        {
+            gameUI = Global.GetObj<GameUI>("res://Scene/UI/GameUI/GameUI.tscn");
+            canvasLayer.AddChild(gameUI);
+        }
        
-        if (IsOnline)
+        if (IsOnline && TransportManager.Instance?.Current != null)
         {
             TransportManager.Instance.Current.NetPlayerListChanged
                 += OnNetTransPlayerListChanged;
@@ -290,15 +335,27 @@ public partial class Game : Node,INetObject
         else
         {
             var player = ObjectPoolManager.GetPossibleObject<Player>("player");
-            AuthorizedNetSpawn(player, IsOnline);
+            if (player != null)
+            {
+                player.id.Value = 0UL;
+                player.name.Value = "LocalPlayer";
+                player.localSlotIndex.Value = 0;
+                player.ready.Value = true;
+                AuthorizedNetSpawn(player, IsOnline);
+            }
         }
 
     }
     public override void _ExitTree()
     {
         if (instance == this) instance = null;
-        //Engine.TimeScale = 1;
-        InputManager.Instance.SetCaptureRequest(false);
+        if (IsOnline && TransportManager.Instance?.Current != null)
+        {
+            TransportManager.Instance.Current.NetPlayerListChanged
+                -= OnNetTransPlayerListChanged;
+            TransportManager.Instance.Current.HostQuit -= OnHostQuit;
+        }
+        InputManager.Instance?.ClearLocalInputContext();
     }
     public override void _Process(double delta)
     {
@@ -325,13 +382,14 @@ public partial class Game : Node,INetObject
 
     public bool HasAuthority()
     {
-        return false;
+        return !IsOnline || TransportManager.Instance?.Current?.AmIHost() == true;
     }
 
     public List<NetVar> GetInputStateVars()
     {
-        return null;
+        return s_emptyInputStates;
     }
+    static readonly List<NetVar> s_emptyInputStates = new();
     List<NetVar> fullStates;
     public List<NetVar> GetFullStateVars()
     {
@@ -363,6 +421,25 @@ public partial class Game : Node,INetObject
     }
     public void INetDestroy()
     {
+        foreach (var player in players.ToArray())
+        {
+            RemovePlayer(player, false);
+        }
 
+        localPlayer = null;
+        PlayersChanged?.Invoke();
+        LocalPlayerChanged?.Invoke();
+    }
+
+    int GetNextLocalSlotIndex()
+    {
+        int slot = 0;
+        var usedSlots = new HashSet<int>(players.Select(p => (int)p.localSlotIndex.Value));
+        while (usedSlots.Contains(slot))
+        {
+            slot++;
+        }
+
+        return slot;
     }
 }
