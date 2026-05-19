@@ -1,0 +1,409 @@
+[gd_scene format=3 uid="uid://rht8t2w3i4jj"]
+
+[ext_resource type="Script" uid="uid://deor8g1x8y18y" path="res://addons_custom/Settings/Settings.cs" id="1_15v30"]
+[ext_resource type="Script" uid="uid://cloknauyxqmx0" path="res://Scripts/aFrameworks/Input/InputRemapButton.cs" id="2_6s3qa"]
+[ext_resource type="Material" uid="uid://bws05bco4th7d" path="res://Res/Mat/ShaderMat/panel_mat.res" id="2_jn4mh"]
+[ext_resource type="Script" uid="uid://po3coj56p52x" path="res://addons_custom/SimpleButton/SimpleEnhancedButton.cs" id="3_3abdl"]
+
+[sub_resource type="LabelSettings" id="LabelSettings_15v30"]
+font_size = 20
+
+[sub_resource type="LabelSettings" id="LabelSettings_6s3qa"]
+font_size = 20
+
+[sub_resource type="LabelSettings" id="LabelSettings_3abdl"]
+font_size = 26
+
+[node name="Settings" type="Control" unique_id=1037037216 node_paths=PackedStringArray("Language", "WindowMode", "reverseYCheck", "MasterSlider", "BgSlider", "EffSlider", "Resolution", "VSync", "Msaa", "ResetButton", "ReturnButton")]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_15v30")
+Language = NodePath("Panel/Tab/General/V/V1/Lang")
+WindowMode = NodePath("Panel/Tab/General/V/V2/Wind")
+reverseYCheck = NodePath("Panel/Tab/General/V/reverseYCheck")
+MasterSlider = NodePath("Panel/Tab/Audio/V/V1/Mas")
+BgSlider = NodePath("Panel/Tab/Audio/V/V2/Bg")
+EffSlider = NodePath("Panel/Tab/Audio/V/V3/Eff")
+Resolution = NodePath("Panel/Tab/Visual/V/V1/Reso")
+VSync = NodePath("Panel/Tab/Visual/V/VSync")
+Msaa = NodePath("Panel/Tab/Visual/V/V2/MSAA")
+ResetButton = NodePath("Panel/Reset")
+ReturnButton = NodePath("Panel/Return")
+
+[node name="Panel" type="Panel" parent="." unique_id=346470213]
+material = ExtResource("2_jn4mh")
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Tab" type="TabContainer" parent="Panel" unique_id=677165963]
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.094000004
+anchor_top = 0.13100001
+anchor_right = 0.929
+anchor_bottom = 0.84700006
+offset_left = -0.288002
+offset_top = 0.11199188
+offset_right = -0.20800781
+offset_bottom = 0.14398193
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_font_sizes/font_size = 20
+current_tab = 0
+
+[node name="General" type="MarginContainer" parent="Panel/Tab" unique_id=48609351]
+layout_mode = 2
+theme_override_constants/margin_left = 50
+theme_override_constants/margin_top = 35
+theme_override_constants/margin_right = 50
+theme_override_constants/margin_bottom = 25
+metadata/_tab_index = 0
+
+[node name="V" type="VFlowContainer" parent="Panel/Tab/General" unique_id=1225424092]
+layout_mode = 2
+
+[node name="V1" type="VBoxContainer" parent="Panel/Tab/General/V" unique_id=897236674]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/Tab/General/V/V1" unique_id=1210778390]
+layout_mode = 2
+text = "语言设置"
+label_settings = SubResource("LabelSettings_15v30")
+
+[node name="Lang" type="OptionButton" parent="Panel/Tab/General/V/V1" unique_id=1507295072]
+custom_minimum_size = Vector2(200, 50)
+layout_mode = 2
+size_flags_horizontal = 0
+item_count = 8
+popup/item_0/text = "English"
+popup/item_0/id = 0
+popup/item_1/text = "简体中文"
+popup/item_1/id = 1
+popup/item_2/text = "Español"
+popup/item_2/id = 2
+popup/item_3/text = "日本語"
+popup/item_3/id = 3
+popup/item_4/text = "한국어"
+popup/item_4/id = 4
+popup/item_5/text = "Deutsch"
+popup/item_5/id = 5
+popup/item_6/text = "繁體中文"
+popup/item_6/id = 6
+popup/item_7/text = "Русский"
+popup/item_7/id = 7
+
+[node name="V2" type="VBoxContainer" parent="Panel/Tab/General/V" unique_id=1924962609]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/Tab/General/V/V2" unique_id=2124397322]
+layout_mode = 2
+text = "窗口设置"
+label_settings = SubResource("LabelSettings_15v30")
+
+[node name="Wind" type="OptionButton" parent="Panel/Tab/General/V/V2" unique_id=2034543761]
+custom_minimum_size = Vector2(200, 50)
+layout_mode = 2
+size_flags_horizontal = 0
+
+[node name="reverseYCheck" type="CheckBox" parent="Panel/Tab/General/V" unique_id=1073586375]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "视角Y轴翻转"
+
+[node name="Audio" type="MarginContainer" parent="Panel/Tab" unique_id=1489361680]
+visible = false
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/margin_left = 50
+theme_override_constants/margin_top = 30
+theme_override_constants/margin_right = 50
+theme_override_constants/margin_bottom = 25
+metadata/_tab_index = 1
+
+[node name="V" type="VFlowContainer" parent="Panel/Tab/Audio" unique_id=865625806]
+layout_mode = 2
+
+[node name="V1" type="VBoxContainer" parent="Panel/Tab/Audio/V" unique_id=1109434243]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/Tab/Audio/V/V1" unique_id=1328157393]
+layout_mode = 2
+text = "主音量"
+label_settings = SubResource("LabelSettings_15v30")
+
+[node name="Mas" type="HSlider" parent="Panel/Tab/Audio/V/V1" unique_id=935140581]
+custom_minimum_size = Vector2(200, 50)
+layout_mode = 2
+size_flags_horizontal = 0
+
+[node name="V2" type="VBoxContainer" parent="Panel/Tab/Audio/V" unique_id=527292443]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/Tab/Audio/V/V2" unique_id=908664574]
+layout_mode = 2
+text = "背景"
+label_settings = SubResource("LabelSettings_15v30")
+
+[node name="Bg" type="HSlider" parent="Panel/Tab/Audio/V/V2" unique_id=1407056726]
+custom_minimum_size = Vector2(200, 50)
+layout_mode = 2
+size_flags_horizontal = 0
+
+[node name="V3" type="VBoxContainer" parent="Panel/Tab/Audio/V" unique_id=1767955192]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/Tab/Audio/V/V3" unique_id=982488552]
+layout_mode = 2
+text = "特效"
+label_settings = SubResource("LabelSettings_15v30")
+
+[node name="Eff" type="HSlider" parent="Panel/Tab/Audio/V/V3" unique_id=2025542390]
+custom_minimum_size = Vector2(200, 50)
+layout_mode = 2
+size_flags_horizontal = 0
+
+[node name="Input" type="MarginContainer" parent="Panel/Tab" unique_id=1652061605]
+visible = false
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/margin_left = 80
+theme_override_constants/margin_top = 25
+theme_override_constants/margin_right = 80
+theme_override_constants/margin_bottom = 25
+metadata/_tab_index = 2
+
+[node name="V" type="VBoxContainer" parent="Panel/Tab/Input" unique_id=73890461]
+layout_mode = 2
+
+[node name="H1" type="HBoxContainer" parent="Panel/Tab/Input/V" unique_id=1704682217]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/Tab/Input/V/H1" unique_id=630484773]
+layout_mode = 2
+text = "操作"
+label_settings = SubResource("LabelSettings_6s3qa")
+
+[node name="Label2" type="Label" parent="Panel/Tab/Input/V/H1" unique_id=2106532605]
+layout_mode = 2
+size_flags_horizontal = 10
+text = "键盘/手柄"
+label_settings = SubResource("LabelSettings_6s3qa")
+
+[node name="H2" type="HBoxContainer" parent="Panel/Tab/Input/V" unique_id=1546726999]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/Tab/Input/V/H2" unique_id=526946367]
+layout_mode = 2
+text = "前进"
+label_settings = SubResource("LabelSettings_6s3qa")
+
+[node name="Right" type="HBoxContainer" parent="Panel/Tab/Input/V/H2" unique_id=1058568344]
+layout_mode = 2
+size_flags_horizontal = 10
+
+[node name="Button" type="Button" parent="Panel/Tab/Input/V/H2/Right" unique_id=337251248]
+custom_minimum_size = Vector2(70, 0)
+layout_mode = 2
+script = ExtResource("2_6s3qa")
+ActionName = "accelerate"
+
+[node name="Button2" type="Button" parent="Panel/Tab/Input/V/H2/Right" unique_id=235534963]
+custom_minimum_size = Vector2(70, 0)
+layout_mode = 2
+script = ExtResource("2_6s3qa")
+ActionName = "accelerate"
+DeviceType = 1
+
+[node name="H3" type="HBoxContainer" parent="Panel/Tab/Input/V" unique_id=1083695200]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/Tab/Input/V/H3" unique_id=30205108]
+layout_mode = 2
+text = "后退"
+label_settings = SubResource("LabelSettings_6s3qa")
+
+[node name="Right" type="HBoxContainer" parent="Panel/Tab/Input/V/H3" unique_id=352291172]
+layout_mode = 2
+size_flags_horizontal = 10
+
+[node name="Button" type="Button" parent="Panel/Tab/Input/V/H3/Right" unique_id=900769626]
+custom_minimum_size = Vector2(70, 0)
+layout_mode = 2
+script = ExtResource("2_6s3qa")
+ActionName = "reverse"
+
+[node name="Button2" type="Button" parent="Panel/Tab/Input/V/H3/Right" unique_id=1425255608]
+custom_minimum_size = Vector2(70, 0)
+layout_mode = 2
+script = ExtResource("2_6s3qa")
+ActionName = "reverse"
+DeviceType = 1
+
+[node name="H4" type="HBoxContainer" parent="Panel/Tab/Input/V" unique_id=2021925238]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/Tab/Input/V/H4" unique_id=1517856324]
+layout_mode = 2
+text = "向左"
+label_settings = SubResource("LabelSettings_6s3qa")
+
+[node name="Right" type="HBoxContainer" parent="Panel/Tab/Input/V/H4" unique_id=1998406013]
+layout_mode = 2
+size_flags_horizontal = 10
+
+[node name="Button" type="Button" parent="Panel/Tab/Input/V/H4/Right" unique_id=412078609]
+custom_minimum_size = Vector2(70, 0)
+layout_mode = 2
+script = ExtResource("2_6s3qa")
+ActionName = "turn_left"
+
+[node name="Button2" type="Button" parent="Panel/Tab/Input/V/H4/Right" unique_id=1237429565]
+custom_minimum_size = Vector2(70, 0)
+layout_mode = 2
+script = ExtResource("2_6s3qa")
+ActionName = "turn_left"
+DeviceType = 1
+
+[node name="H5" type="HBoxContainer" parent="Panel/Tab/Input/V" unique_id=1199923629]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/Tab/Input/V/H5" unique_id=1635731190]
+layout_mode = 2
+text = "向右"
+label_settings = SubResource("LabelSettings_6s3qa")
+
+[node name="Right" type="HBoxContainer" parent="Panel/Tab/Input/V/H5" unique_id=1037539362]
+layout_mode = 2
+size_flags_horizontal = 10
+
+[node name="Button" type="Button" parent="Panel/Tab/Input/V/H5/Right" unique_id=1890915842]
+custom_minimum_size = Vector2(70, 0)
+layout_mode = 2
+script = ExtResource("2_6s3qa")
+ActionName = "turn_right"
+
+[node name="Button2" type="Button" parent="Panel/Tab/Input/V/H5/Right" unique_id=322322275]
+custom_minimum_size = Vector2(70, 0)
+layout_mode = 2
+script = ExtResource("2_6s3qa")
+ActionName = "turn_right"
+DeviceType = 1
+
+[node name="H6" type="HBoxContainer" parent="Panel/Tab/Input/V" unique_id=534890349]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/Tab/Input/V/H6" unique_id=308004530]
+layout_mode = 2
+text = "跳跃"
+label_settings = SubResource("LabelSettings_6s3qa")
+
+[node name="Right" type="HBoxContainer" parent="Panel/Tab/Input/V/H6" unique_id=1936495895]
+layout_mode = 2
+size_flags_horizontal = 10
+
+[node name="Button" type="Button" parent="Panel/Tab/Input/V/H6/Right" unique_id=1287371963]
+custom_minimum_size = Vector2(70, 0)
+layout_mode = 2
+script = ExtResource("2_6s3qa")
+ActionName = "jump"
+
+[node name="Button2" type="Button" parent="Panel/Tab/Input/V/H6/Right" unique_id=2140831588]
+custom_minimum_size = Vector2(70, 0)
+layout_mode = 2
+script = ExtResource("2_6s3qa")
+ActionName = "jump"
+DeviceType = 1
+
+[node name="Visual" type="MarginContainer" parent="Panel/Tab" unique_id=545049348]
+visible = false
+layout_mode = 2
+theme_override_constants/margin_left = 50
+theme_override_constants/margin_top = 25
+theme_override_constants/margin_right = 50
+theme_override_constants/margin_bottom = 25
+metadata/_tab_index = 3
+
+[node name="V" type="VFlowContainer" parent="Panel/Tab/Visual" unique_id=795229681]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="V1" type="VBoxContainer" parent="Panel/Tab/Visual/V" unique_id=1744765456]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/Tab/Visual/V/V1" unique_id=1303498795]
+layout_mode = 2
+text = "分辨率"
+label_settings = SubResource("LabelSettings_15v30")
+
+[node name="Reso" type="OptionButton" parent="Panel/Tab/Visual/V/V1" unique_id=1875784354]
+custom_minimum_size = Vector2(200, 50)
+layout_mode = 2
+size_flags_horizontal = 0
+
+[node name="V2" type="VBoxContainer" parent="Panel/Tab/Visual/V" unique_id=153146318]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/Tab/Visual/V/V2" unique_id=17477025]
+layout_mode = 2
+text = "抗锯齿"
+label_settings = SubResource("LabelSettings_15v30")
+
+[node name="MSAA" type="OptionButton" parent="Panel/Tab/Visual/V/V2" unique_id=80219472]
+custom_minimum_size = Vector2(200, 50)
+layout_mode = 2
+size_flags_horizontal = 0
+
+[node name="VSync" type="CheckBox" parent="Panel/Tab/Visual/V" unique_id=680105110]
+layout_mode = 2
+text = "开启垂直同步"
+
+[node name="Reset" type="Button" parent="Panel" unique_id=824292474]
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.91800004
+anchor_top = 0.13700001
+anchor_right = 0.91800004
+anchor_bottom = 0.13700001
+offset_left = -178.53601
+offset_top = -17.776009
+offset_right = -0.53601074
+offset_bottom = 18.223991
+grow_horizontal = 0
+theme_override_font_sizes/font_size = 18
+text = "重置回默认"
+script = ExtResource("3_3abdl")
+metadata/_custom_type_script = "uid://po3coj56p52x"
+
+[node name="Return" type="Button" parent="Panel" unique_id=1615022099]
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.90900004
+anchor_top = 0.915
+anchor_right = 0.90900004
+anchor_bottom = 0.915
+offset_left = -212.16809
+offset_top = -17.920044
+offset_right = -0.16809082
+offset_bottom = 18.079956
+grow_horizontal = 0
+theme_override_font_sizes/font_size = 18
+text = "返回"
+script = ExtResource("3_3abdl")
+metadata/_custom_type_script = "uid://po3coj56p52x"
+
+[node name="Label" type="Label" parent="Panel" unique_id=915275903]
+layout_mode = 0
+offset_left = 62.0
+offset_top = 26.0
+offset_right = 233.0
+offset_bottom = 64.0
+text = "设置界面"
+label_settings = SubResource("LabelSettings_3abdl")

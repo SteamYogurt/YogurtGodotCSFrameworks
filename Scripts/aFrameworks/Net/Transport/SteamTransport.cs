@@ -121,7 +121,7 @@ public partial class SteamTransport : INetTransport
         for (int i = 0; i < _cachedMemberIDs.Count; i++)
         {
             ulong memberID = _cachedMemberIDs[i];
-            if (memberID == myID) continue;
+
             bool shouldSend = type switch
             {
                 SendType.AllOthers => memberID != myID,
@@ -148,7 +148,7 @@ public partial class SteamTransport : INetTransport
                     ref identity,
                     (IntPtr)p,
                     (uint)data.Length,
-                    Constants.k_nSteamNetworkingSend_Reliable,
+                    Constants.k_nSteamNetworkingSend_ReliableNoNagle,
                     P2P_CHANNEL
                 );
             }

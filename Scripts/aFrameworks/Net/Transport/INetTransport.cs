@@ -29,7 +29,7 @@ public partial interface INetTransport
 public class INetTransportPlayerInfo
 {
     public string name;
-    public ulong id;
+    public ulong id;   
 }
 public enum SendType
 {

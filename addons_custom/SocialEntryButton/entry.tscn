@@ -1,0 +1,62 @@
+[gd_scene format=3 uid="uid://dhsvcdkuwjg54"]
+
+[ext_resource type="Texture2D" uid="uid://d0dsfpx27dg74" path="res://addons_custom/SocialEntryButton/Icon/Steam_icon_logo.svg.png" id="1_ey7db"]
+[ext_resource type="Script" uid="uid://bjxsvkpgd5tkb" path="res://addons_custom/SocialEntryButton/SteamEntryButton.cs" id="2_4vbry"]
+[ext_resource type="Texture2D" uid="uid://bjq5tth17wi1" path="res://addons_custom/SocialEntryButton/Icon/discord_PNG22.png" id="3_n8ens"]
+[ext_resource type="Script" uid="uid://btp4k5b0taoyc" path="res://addons_custom/SocialEntryButton/DiscordEntryButton.cs" id="4_0jkm2"]
+[ext_resource type="Texture2D" uid="uid://bypkvt5w4owou" path="res://addons_custom/SocialEntryButton/Icon/qq.png" id="5_ate0f"]
+[ext_resource type="Script" uid="uid://c5nvvtayud7ls" path="res://addons_custom/SocialEntryButton/QQEntryButton.cs" id="6_m6i8k"]
+[ext_resource type="Texture2D" uid="uid://btpo56n8aw7gb" path="res://addons_custom/SocialEntryButton/QQ/qqgroup.jpg" id="7_gm7ph"]
+
+[node name="Entry" type="HBoxContainer" unique_id=1794598976]
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -137.0
+offset_top = -47.0
+offset_right = -8.0
+offset_bottom = -7.0
+grow_horizontal = 0
+grow_vertical = 0
+theme_override_constants/separation = 12
+
+[node name="Steam" type="TextureRect" parent="." unique_id=777933934]
+custom_minimum_size = Vector2(35, 35)
+layout_mode = 2
+size_flags_horizontal = 4
+size_flags_vertical = 4
+texture = ExtResource("1_ey7db")
+expand_mode = 1
+script = ExtResource("2_4vbry")
+targetUrl = "https://steamcommunity.com/app/4453470/"
+confirmTitle = "steam_title"
+confirmMessage = "steam_message"
+metadata/_custom_type_script = "uid://rlmkd1k131xy"
+
+[node name="Discord" type="TextureRect" parent="." unique_id=1138360773]
+custom_minimum_size = Vector2(35, 35)
+layout_mode = 2
+size_flags_horizontal = 4
+size_flags_vertical = 4
+texture = ExtResource("3_n8ens")
+expand_mode = 1
+script = ExtResource("4_0jkm2")
+targetUrl = "https://discord.gg/CvKR4SwKzf"
+confirmTitle = "discord_title"
+confirmMessage = "discord_message"
+metadata/_custom_type_script = "uid://rlmkd1k131xy"
+
+[node name="QQ" type="TextureRect" parent="." unique_id=1559971604]
+custom_minimum_size = Vector2(35, 35)
+layout_mode = 2
+size_flags_horizontal = 4
+size_flags_vertical = 4
+texture = ExtResource("5_ate0f")
+expand_mode = 1
+script = ExtResource("6_m6i8k")
+groupNumber = "1097316153"
+groupQrCode = ExtResource("7_gm7ph")
+dialogMessage = "扫描二维码或者复制群号加入QQ群"
+metadata/_custom_type_script = "uid://rlmkd1k131xy"

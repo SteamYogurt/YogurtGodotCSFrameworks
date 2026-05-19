@@ -12,7 +12,23 @@ public partial class InputManager : Singleton<InputManager>
     // --- 核心修复：使用 Array 存储多个默认绑定，防止“吞”掉备选键位 ---
     private Dictionary<string, Array<InputEvent>> _defaultKbmBindings = new();
     private Dictionary<string, Array<InputEvent>> _defaultJoypadBindings = new();
+    readonly string[] _localCoopActionNames =
+{
+        "move_left",
+        "move_right",
+        "move_down",
+        "move_up",
+        "aim_left",
+        "aim_right",
+        "aim_down",
+        "aim_up",
+        "firing",
+        "roll",
+        "knock",
+        "reload"
+    };
 
+    int _localCoopJoypadDevice = -1;
     public InputDeviceType LastUsedDevice { get; private set; } = InputDeviceType.Kbm;
 
     [Signal] public delegate void DeviceTypeChangedEventHandler(InputDeviceType newType);
@@ -308,6 +324,283 @@ public partial class InputManager : Singleton<InputManager>
 
     public void StopVibrate(int device = 0) => Input.StopJoyVibration(device);
 
+    public InputDeviceType GetDeviceTypeForLocalSlot(int localSlotIndex)
+    {
+        return TryGetAssignedJoypadDevice(localSlotIndex, out _)
+                ? InputDeviceType.Joypad
+                : InputDeviceType.Kbm;
+        // return LastUsedDevice;
+    }
+
+    bool TryGetAssignedJoypadDevice(int localSlotIndex, out int device)
+    {
+        device = -1;
+
+        var joypads = Input.GetConnectedJoypads();
+        if (joypads.Count <= 0)
+            return false;
+
+        if (Game.instance != null && Game.instance.IsLocalCoop)
+        {
+            if (localSlotIndex < 0)
+                return false;
+
+            int localPlayerCount = Mathf.Max(Game.instance.LocalPlayerCount, 1);
+
+            // 手柄足够：所有本地玩家都走手柄
+            if (joypads.Count >= localPlayerCount)
+            {
+                if (localSlotIndex >= 0 && localSlotIndex < localPlayerCount)
+                {
+                    device = joypads[localSlotIndex];
+                    return true;
+                }
+
+                return false;
+            }
+
+            // 手柄不够：slot0 使用键鼠，其余槽位顺延占用手柄
+            if (localSlotIndex == 0)
+                return false;
+
+            int joypadIndex = localSlotIndex - 1;
+            if (joypadIndex >= 0 && joypadIndex < joypads.Count)
+            {
+                device = joypads[joypadIndex];
+                return true;
+            }
+
+            return false;
+        }
+
+        if (LastUsedDevice == InputDeviceType.Joypad)
+        {
+            device = joypads[0];
+            return true;
+        }
+
+        return false;
+    }
+    public int GetJoypadDeviceForLocalSlot(int localSlotIndex)
+    {
+        return TryGetAssignedJoypadDevice(localSlotIndex, out int device)
+            ? device
+            : -1;
+    }
+
+
+    public float GetActionStrengthForLocalSlot(string actionName, int localSlotIndex)
+    {
+        if (GetDeviceTypeForLocalSlot(localSlotIndex) == InputDeviceType.Kbm)
+            return GetKbmActionStrength(actionName);
+
+        int device = GetJoypadDeviceForLocalSlot(localSlotIndex);
+        return GetJoypadActionStrength(actionName, device);
+    }
+    float GetKbmActionStrength(string actionName)
+    {
+        if (!InputMap.HasAction(actionName))
+            return 0f;
+
+        float strength = 0f;
+        float deadzone = InputMap.ActionGetDeadzone(actionName);
+        var events = InputMap.ActionGetEvents(actionName);
+
+        foreach (var @event in events)
+        {
+            if (@event is InputEventKey keyEvent)
+            {
+                Key keycode = keyEvent.PhysicalKeycode != Key.None
+                    ? keyEvent.PhysicalKeycode
+                    : keyEvent.Keycode;
+
+                if (keycode != Key.None && Input.IsPhysicalKeyPressed(keycode))
+                {
+                    strength = Mathf.Max(strength, 1f);
+                }
+            }
+            else if (@event is InputEventMouseButton mouseEvent)
+            {
+                if (Input.IsMouseButtonPressed(mouseEvent.ButtonIndex))
+                {
+                    strength = Mathf.Max(strength, 1f);
+                }
+            }
+        }
+
+        return strength > deadzone ? Mathf.Clamp(strength, 0f, 1f) : 0f;
+    }
+    float GetJoypadActionStrength(string actionName, int device)
+    {
+        if (device < 0 || !InputMap.HasAction(actionName))
+            return 0f;
+
+        float strength = 0f;
+        float deadzone = InputMap.ActionGetDeadzone(actionName);
+
+        var events = InputMap.ActionGetEvents(actionName);
+        foreach (var @event in events)
+        {
+            if (@event is InputEventJoypadButton button)
+            {
+                if (Input.IsJoyButtonPressed(device, button.ButtonIndex))
+                {
+                    strength = Mathf.Max(strength, 1f);
+                }
+            }
+            else if (@event is InputEventJoypadMotion motion)
+            {
+                float axisValue = Input.GetJoyAxis(device, motion.Axis);
+                float mappedSign = Mathf.Sign(motion.AxisValue);
+                if (Mathf.IsZeroApprox(mappedSign))
+                    mappedSign = 1f;
+
+                float projected = axisValue * mappedSign;
+                if (projected > deadzone)
+                {
+                    float normalized =
+                        (projected - deadzone) /
+                        Mathf.Max(1f - deadzone, 0.0001f);
+
+                    strength = Mathf.Max(
+                        strength,
+                        Mathf.Clamp(normalized, 0f, 1f));
+                }
+            }
+        }
+
+        return Mathf.Clamp(strength, 0f, 1f);
+    }
+    public bool IsActionPressedForLocalSlot(string actionName, int localSlotIndex)
+    {
+        float deadzone = InputMap.HasAction(actionName)
+            ? InputMap.ActionGetDeadzone(actionName)
+            : 0.5f;
+
+        return GetActionStrengthForLocalSlot(actionName, localSlotIndex) > deadzone;
+    }
+
+    public float GetAxisForLocalSlot(
+        string negativeAction,
+        string positiveAction,
+        int localSlotIndex)
+    {
+        float negative = GetActionStrengthForLocalSlot(negativeAction, localSlotIndex);
+        float positive = GetActionStrengthForLocalSlot(positiveAction, localSlotIndex);
+        return positive - negative;
+    }
+
+    public Vector2 GetVectorForLocalSlot(
+        string negativeX,
+        string positiveX,
+        string negativeY,
+        string positiveY,
+        int localSlotIndex)
+    {
+        Vector2 result = new Vector2(
+            GetAxisForLocalSlot(negativeX, positiveX, localSlotIndex),
+            GetAxisForLocalSlot(negativeY, positiveY, localSlotIndex));
+
+        if (result.LengthSquared() > 1f)
+            result = result.Normalized();
+
+        return result;
+    }
+
+    public bool IsInputEventForLocalSlotAction(
+    InputEvent @event,
+    string actionName,
+    int localSlotIndex)
+    {
+        if (!InputMap.HasAction(actionName))
+            return false;
+
+        if (GetDeviceTypeForLocalSlot(localSlotIndex) == InputDeviceType.Kbm)
+        {
+            if (@event is not InputEventKey && @event is not InputEventMouseButton)
+                return false;
+
+            var mappedEvents = InputMap.ActionGetEvents(actionName);
+            foreach (var mappedEvent in mappedEvents)
+            {
+                if (mappedEvent is InputEventKey mappedKey &&
+                    @event is InputEventKey inputKey &&
+                    inputKey.Pressed &&
+                    !inputKey.IsEcho())
+                {
+                    Key mappedCode = mappedKey.PhysicalKeycode != Key.None
+                        ? mappedKey.PhysicalKeycode
+                        : mappedKey.Keycode;
+                    Key inputCode = inputKey.PhysicalKeycode != Key.None
+                        ? inputKey.PhysicalKeycode
+                        : inputKey.Keycode;
+
+                    if (mappedCode != Key.None && mappedCode == inputCode)
+                        return true;
+                }
+
+                if (mappedEvent is InputEventMouseButton mappedMouse &&
+                    @event is InputEventMouseButton inputMouse &&
+                    inputMouse.Pressed &&
+                    inputMouse.ButtonIndex == mappedMouse.ButtonIndex)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        int device = GetJoypadDeviceForLocalSlot(localSlotIndex);
+        if (device < 0)
+            return false;
+
+        var joyMappedEvents = InputMap.ActionGetEvents(actionName);
+        foreach (var mappedEvent in joyMappedEvents)
+        {
+            if (mappedEvent is InputEventJoypadButton mappedButton &&
+                @event is InputEventJoypadButton inputButton &&
+                inputButton.Pressed &&
+                inputButton.Device == device &&
+                inputButton.ButtonIndex == mappedButton.ButtonIndex)
+            {
+                return true;
+            }
+
+            if (mappedEvent is InputEventJoypadMotion mappedMotion &&
+                @event is InputEventJoypadMotion inputMotion &&
+                inputMotion.Device == device &&
+                inputMotion.Axis == mappedMotion.Axis)
+            {
+                float mappedSign = Mathf.Sign(mappedMotion.AxisValue);
+                if (Mathf.IsZeroApprox(mappedSign))
+                    mappedSign = 1f;
+
+                float deadzone = InputMap.ActionGetDeadzone(actionName);
+                if (inputMotion.AxisValue * mappedSign > deadzone)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+    public void VibrateForLocalSlot(
+        int localSlotIndex,
+        float weak = 0.5f,
+        float strong = 0.0f,
+        float duration = 0.1f)
+    {
+        if (!_config.VibrationEnabled)
+            return;
+
+        int device = GetJoypadDeviceForLocalSlot(localSlotIndex);
+        if (device < 0)
+            return;
+
+        Input.StartJoyVibration(device, weak, strong, duration);
+    }
     public void RefreshDeviceStatus()
     {
         if (Input.GetConnectedJoypads().Count == 0) LastUsedDevice = InputDeviceType.Kbm;

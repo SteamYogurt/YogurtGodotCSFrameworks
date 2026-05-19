@@ -16,30 +16,34 @@ public partial class SimpleEnhancedButton : Button
     // ===== 颤动功能 =====
     [ExportGroup("Shake Settings")]
     [Export] public bool shakeOnHover = true;      // 是否启用颤动
-    [Export] public float shakeStrength = 0.15f;   // 旋转弧度
-    [Export] public float shakeFrequency = 40.0f;  // 颤动频率
+    [Export] public float shakeStrength = 0.08f;   // 旋转弧度
+    [Export] public float shakeFrequency = 25.0f;  // 颤动频率
     [Export] public float shakeDuration = 0.4f;    // 持续时间
     private float _shakeTimer = 0f;
 
     public override void _EnterTree()
     {
-        // 初始状态清理
         _targetScale = Vector2.One;
         Scale = Vector2.One;
     }
 
     public override void _Ready()
     {
-        // 信号连接
         MouseEntered += OnMouseEntered;
+        FocusEntered += OnMouseEntered;
         MouseExited += OnMouseExited;
+        FocusExited += OnMouseExited;
         ButtonDown += OnButtonDown;
         ButtonUp += OnButtonUp;
         VisibilityChanged += OnResetState;
 
-        // 确保 Pivot 在中心，旋转和缩放才会围绕中心
         Resized += UpdatePivot;
         UpdatePivot();
+    }
+
+    private void SimpleEnhancedButton_FocusEntered()
+    {
+        throw new NotImplementedException();
     }
 
     private void UpdatePivot()
@@ -54,13 +58,11 @@ public partial class SimpleEnhancedButton : Button
         if (scaleHover && !IsPressed())
             _targetScale = new Vector2(hoverScale, hoverScale);
 
-        // 触发颤动计时
         if (shakeOnHover) _shakeTimer = shakeDuration;
     }
 
     private void OnMouseExited()
     {
-        // 如果松开状态离开，重置缩放
         if (!IsPressed()) _targetScale = Vector2.One;
 
         _shakeTimer = 0f;
@@ -69,13 +71,13 @@ public partial class SimpleEnhancedButton : Button
 
     private void OnButtonDown()
     {
+        UIStatic.PlayClickEffect();
         if (scalePress)
             _targetScale = new Vector2(pressScale, pressScale);
     }
 
     private void OnButtonUp()
     {
-        // 弹起时判断是回到悬停缩放还是原始缩放
         if (IsHovered() && scaleHover)
             _targetScale = new Vector2(hoverScale, hoverScale);
         else
@@ -85,6 +87,7 @@ public partial class SimpleEnhancedButton : Button
     private void OnResetState()
     {
         _targetScale = Vector2.One;
+        Scale = Vector2.One; // 显式重置缩放防止状态残留
         Rotation = 0f;
         _shakeTimer = 0f;
     }
@@ -93,21 +96,31 @@ public partial class SimpleEnhancedButton : Button
     {
         float fDelta = (float)delta;
 
-        // 1. 平滑缩放
-        if (Scale.DistanceSquaredTo(_targetScale) > 0.0001f)
+        // --- 修复 1: 缩放逻辑 (增加 Clamp 权重) ---
+        if (Scale.DistanceSquaredTo(_targetScale) > 0.00001f)
         {
-            Scale = Scale.Lerp(_targetScale, scaleSmoothSpeed * fDelta);
+            // 使用 Mathf.Min 确保权重永远不会超过 1.0，防止低帧率下的过冲弹动
+            float weight = Mathf.Clamp(scaleSmoothSpeed * fDelta, 0f, 1f);
+            Scale = Scale.Lerp(_targetScale, weight);
+        }
+        else
+        {
+            Scale = _targetScale;
         }
 
-        // 2. 颤动逻辑 (旋转)
+        // --- 修复 2: 颤动逻辑 ---
         if (_shakeTimer > 0)
         {
+            // 先计算衰减，再减去时间，防止 decay 出现负数导致的瞬间反向旋转
+            float decay = Mathf.Max(_shakeTimer / shakeDuration, 0f);
             _shakeTimer -= fDelta;
-            float decay = _shakeTimer / shakeDuration;
-            // 使用 Sine 函数制造快速往复
+
             Rotation = Mathf.Sin((float)Time.GetTicksMsec() * 0.001f * shakeFrequency) * shakeStrength * decay;
 
-            if (_shakeTimer <= 0) Rotation = 0f;
+            if (_shakeTimer <= 0)
+            {
+                Rotation = 0f;
+            }
         }
     }
 }

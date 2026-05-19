@@ -32,8 +32,8 @@ public partial class SimpleButton : TextureRect
     // ===== 颤动功能 (New!) =====
     [ExportGroup("Shake Settings")]
     [Export] public bool shakeOnHover = true;      // 是否启用颤动
-    [Export] public float shakeStrength = 0.15f;   // 旋转弧度（约 8.5度）
-    [Export] public float shakeFrequency = 40.0f;  // 颤动频率
+    [Export] public float shakeStrength = 0.08f;   // 旋转弧度（约 8.5度）
+    [Export] public float shakeFrequency = 25.0f;  // 颤动频率
     [Export] public float shakeDuration = 0.4f;    // 持续时间（秒）
     private float _shakeTimer = 0f;
 

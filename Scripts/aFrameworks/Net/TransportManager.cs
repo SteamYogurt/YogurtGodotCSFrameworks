@@ -28,17 +28,17 @@ public partial class TransportManager : Singleton<TransportManager>
     {
         Current?.Free();
     }
-
+    
     public override void _Process(double delta)
     {
         Current?.Poll();
     }
     public void OnEvent(string @event)
     {
-        if (Current != null && @event == "Kick")
+        if(Current != null && @event == "Kick")
         {
             //Current.LeaveRoom();
-            Game.TryFreeGameAndReturn("Kicked");
+            Game.TryFreeGameAndReturn("Kicked or Started");
         }
     }
     public void HostKick(ulong id)

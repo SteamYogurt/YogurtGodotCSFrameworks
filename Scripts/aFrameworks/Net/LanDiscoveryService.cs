@@ -13,11 +13,9 @@ public class LanRoomBroadcastData
     public string RoomName { get; set; } = "";
     public string HostAddress { get; set; } = "";
     public int Port { get; set; } = 7777;
+
     public int PlayerCount { get; set; }
-    public int MaxPlayer { get; set; }
-    public string Status { get; set; } = "";
-    public bool MidJoinable { get; set; }
-    public string MapName { get; set; } = "";
+    public bool Joinable { get; set; }
 }
 
 public class LanDiscoveredRoomInfo : LanRoomBroadcastData
@@ -255,18 +253,12 @@ public partial class LanDiscoveryService : Node
         var game = Game.instance;
 
         int playerCount = transport.GetTempNetPlayerInfos()?.Count ?? 1;
-        int maxPlayer = 0;
-        string status = "Room";
-        bool midJoinable = true;
-        string mapName = "";
+        bool joinable = true;
 
         if (game != null)
         {
             playerCount = game.Players?.Count ?? playerCount;
-            maxPlayer = game.MaxPlayerCount;
-            status = game.Status.ToString();
-            midJoinable = game.MidJoinable;
-            mapName = game.MapName ?? "";
+            joinable = game.IsInBasement;
         }
 
         data = new LanRoomBroadcastData
@@ -275,10 +267,7 @@ public partial class LanDiscoveryService : Node
             HostAddress = "",
             Port = GamePort,
             PlayerCount = playerCount,
-            MaxPlayer = maxPlayer,
-            Status = status,
-            MidJoinable = midJoinable,
-            MapName = mapName
+            Joinable = joinable
         };
 
         return true;
@@ -301,10 +290,7 @@ public partial class LanDiscoveryService : Node
                 HostAddress = remote.Address.ToString(),
                 Port = data.Port <= 0 ? GamePort : data.Port,
                 PlayerCount = data.PlayerCount,
-                MaxPlayer = data.MaxPlayer,
-                Status = data.Status ?? "",
-                MidJoinable = data.MidJoinable,
-                MapName = data.MapName ?? "",
+                Joinable = data.Joinable,
                 LastSeenUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
             };
 

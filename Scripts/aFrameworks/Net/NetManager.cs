@@ -96,19 +96,19 @@ public partial class NetManager : Singleton<NetManager>
 
         if (transportManager.Current.AmIHost())
         {
-            if (accum > 3)
+            if (accum > 4)
             {
                 accum = 0;
                 foreach (var obj in idToObject.Values)
                 {
                     HostSendStateData(obj);
                 }
-
+                    
             }
         }
         else
         {
-            if (accum > 3)
+            if (accum > 4)
             {
                 accum = 0;
                 foreach (var obj in idToObject.Values)
@@ -190,6 +190,7 @@ public partial class NetManager : Singleton<NetManager>
                 case NetMsgType.SpawnObj: ReadSpawnObj(contentSpan); break;
                 case NetMsgType.InitialPacket: ReadObjInitialPacket(contentSpan); break;
                 case NetMsgType.StateUpdate: ReadObjStateData(contentSpan); break;
+                case NetMsgType.Customize: ReadCustomize(contentSpan); break;
                 case NetMsgType.Input: ReadInputData(contentSpan); break;
                 case NetMsgType.RPC: ReadRPC(contentSpan); break;
                 case NetMsgType.Ping: ReadPing(contentSpan); break;
@@ -620,7 +621,93 @@ public partial class NetManager : Singleton<NetManager>
         }
     }
     #endregion
+    #region Custom Packet
+    public void SendCustomPacket(INetObject target, ushort packetId, Variant[] args, NetCustomPacketSendType sendType)
+    {
+        uint netId = GetID(target);
+        if (netId == 0) return;
 
+        List<byte[]> argDatas = new();
+        int argsSize = 0;
+        if (args != null)
+        {
+            foreach (var a in args)
+            {
+                byte[] d = GD.VarToBytes(a);
+                argDatas.Add(d);
+                argsSize += 4 + d.Length;
+            }
+        }
+
+        byte[] buffer = new byte[1 + 1 + 4 + 2 + 2 + argsSize];
+        int p = 0;
+        buffer[p++] = (byte)NetMsgType.Customize;
+        buffer[p++] = (byte)sendType;
+        BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(p, 4), netId);
+        p += 4;
+        BinaryPrimitives.WriteUInt16LittleEndian(buffer.AsSpan(p, 2), packetId);
+        p += 2;
+        BinaryPrimitives.WriteUInt16LittleEndian(buffer.AsSpan(p, 2), (ushort)argDatas.Count);
+        p += 2;
+
+        foreach (var d in argDatas)
+        {
+            BinaryPrimitives.WriteInt32LittleEndian(buffer.AsSpan(p, 4), d.Length);
+            p += 4;
+            d.CopyTo(buffer.AsSpan(p));
+            p += d.Length;
+        }
+
+        if (!transportManager.Current.AmIHost())
+        {
+            SendPackedMessage(buffer, SendType.Host);
+            return;
+        }
+
+        switch (sendType)
+        {
+            case NetCustomPacketSendType.ToAll:
+            case NetCustomPacketSendType.ToAllExceptSender:
+                SendPackedMessage(buffer, SendType.AllOthers);
+                break;
+            case NetCustomPacketSendType.ToHost:
+                break;
+        }
+    }
+
+    private void ReadCustomize(Span<byte> content)
+    {
+        NetCustomPacketSendType sendType = (NetCustomPacketSendType)content[0];
+        uint netId = BinaryPrimitives.ReadUInt32LittleEndian(content.Slice(1, 4));
+        ushort packetId = BinaryPrimitives.ReadUInt16LittleEndian(content.Slice(5, 2));
+        ushort argc = BinaryPrimitives.ReadUInt16LittleEndian(content.Slice(7, 2));
+
+        Variant[] args = new Variant[argc];
+        int pos = 9;
+        for (int i = 0; i < argc; i++)
+        {
+            int len = BinaryPrimitives.ReadInt32LittleEndian(content.Slice(pos, 4));
+            pos += 4;
+            args[i] = GD.BytesToVar(content.Slice(pos, len).ToArray());
+            pos += len;
+        }
+
+        var obj = GetNetObject(netId);
+        obj?.GetNetCustomPacketTable()?.Dispatch(packetId, args);
+
+        if (!transportManager.Current.AmIHost()) return;
+
+        switch (sendType)
+        {
+            case NetCustomPacketSendType.ToAll:
+            case NetCustomPacketSendType.ToAllExceptSender:
+                Forward(SendType.OthersExceptSender);
+                break;
+            case NetCustomPacketSendType.ToHost:
+                break;
+        }
+    }
+    #endregion
     #region RPC
     public void SendRPC(INetObject target, byte rpcId, Variant[] args, RPCSendType sendType)
     {
@@ -795,21 +882,3 @@ public partial class NetManager : Singleton<NetManager>
     #endregion
 }
 
-public class NetworkIdGenerator
-{
-    private uint _currentId = 1;
-    public uint PeekNextId() => _currentId;
-    private HashSet<uint> _usedIds = new();
-    public uint GetNextId()
-    {
-        while (_usedIds.Contains(_currentId))
-        {
-            _currentId++;
-            if (_currentId == 0) _currentId = 1;
-        }
-        _usedIds.Add(_currentId);
-        return _currentId++;
-    }
-    public void ReleaseId(uint id) => _usedIds.Remove(id);
-    public void SetUsed(uint id) => _usedIds.Add(id);
-}

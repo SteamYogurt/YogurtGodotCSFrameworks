@@ -1,3 +1,11 @@
 # Godot 4+ specific ignores
 .godot/
 /android/
+# Godot
+.import/
+.mono/
+bin/
+obj/
+*.csproj.user
+*.sln
+.vs/

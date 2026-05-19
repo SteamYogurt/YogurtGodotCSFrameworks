@@ -135,41 +135,109 @@ public partial class UserInfo : Singleton<UserInfo>
         {
             EResolution.R100 => 1f,
             EResolution.R75 => 0.75f,
-            EResolution.R50 => 0.75f,
+            EResolution.R50 => 0.50f,
             _ => 1f
         };
         return scale;
     }
+    [Export]
+    public bool reverseY = false;
 
     [Export]
-    public bool enableCamShake = true;
-    [Export]
-    public bool useRandName = false;
-
-    [Export]
-    string lastTimeUsedChr = null;
-    public string LastTimeUsedChr
+    public string MapName
     {
         get
         {
-            return string.IsNullOrEmpty(lastTimeUsedChr) ?
-        "hero_watermelon" : lastTimeUsedChr;
+            if (string.IsNullOrEmpty(mapName))
+            {
+                return "Map01";
+            }
+            return mapName;
         }
         set
         {
-            if (!string.IsNullOrEmpty(value) || ObjectPoolManager.ExistPossibleObject(lastTimeUsedChr))
-                lastTimeUsedChr = value;
-            else
-            {
-                GD.PrintErr($"存储的最近使用角色名称不存在:{value}");
-            }
+            mapName = value;
         }
+    }
+    string mapName;
+    [Export]
+    public string KartName
+    {
+        get
+        {
+            if (string.IsNullOrEmpty(kartName))
+            {
+                return "Kart01";
+            }
+            return kartName;
+        }
+        set
+        {
+            kartName = value;
+        }
+    }
+    string kartName;
+    [Export]
+    public string ChrName
+    {
+        get
+        {
+            if (string.IsNullOrEmpty(chrName))
+            {
+                return "Chr01";
+            }
+            return chrName;
+        }
+        set
+        {
+            chrName = value;
+        }
+    }
+    string chrName;
+
+    [Export]
+    public Array<string> unlockedKarts = new Array<string>() { "Kart01" };
+    [Export]
+    public Array<string> unlockedChrs= new Array<string>() { "Chr01" };
+    public bool IsKartUnlocked(string id)
+    {
+        return unlockedKarts.Contains(id);
+    }
+
+    public bool IsChrUnlocked(string id)
+    {
+        return unlockedChrs.Contains(id);
+    }
+
+    public void UnlockKart(string id)
+    {
+        if (!unlockedKarts.Contains(id))
+            unlockedKarts.Add(id);
+    }
+
+    public void UnlockChr(string id)
+    {
+        if (!unlockedChrs.Contains(id))
+            unlockedChrs.Add(id);
     }
 
     [Export]
-    public string lastGameMap;
-    [Export]
-    public EGameDifficulty lastGameDifficulty = EGameDifficulty.Normal;
+    public int cash = 0;
+    public event Action CashChanged;
+    public bool CanAfford(int price)
+    {
+        return cash >= price;
+    }
+
+    public bool SpendCash(int price)
+    {
+        if (cash < price)
+            return false;
+
+        cash -= price;
+        CashChanged?.Invoke();
+        return true;
+    }
 
     bool inited = false;
     public void Init()
@@ -189,6 +257,16 @@ public partial class UserInfo : Singleton<UserInfo>
         MasterVol = masterVol;
         BgVol = bgVol;
         EffVol = effVol;
+    }
+
+    public void Reset()
+    {
+        Language = Language.en;
+        WindowMode = DisplayServer.WindowMode.ExclusiveFullscreen;
+        MasterVol = 0;
+        BgVol = 0;
+        EffVol = 0;
+        Resolution = EResolution.R100;
     }
 }
 public enum Language
