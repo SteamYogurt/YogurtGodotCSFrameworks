@@ -213,6 +213,11 @@ public partial class ObjectPoolManager : Singleton<ObjectPoolManager>
             pool.ReturnObjectToPool(obj);
             return;
         }
+        if (Instance.tempPooledObjectPoolsDict.TryGetValue(name,out var pool1))
+        {
+            pool1.ReturnObjectToPool(obj);
+            return;
+        }
         GD.PrintErr($"返回时无法找到对应的对象池:{obj.Info.ObjectName}");
     }
     public static List<T> GetAllReadOnly<T>() where T : IGameObject

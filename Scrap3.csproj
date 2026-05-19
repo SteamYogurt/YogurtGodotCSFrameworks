@@ -11,6 +11,10 @@
   </ItemGroup>
   <ItemGroup>
     <None Include=".github\copilot-instructions.md" />
+    <None Include="Docs\mainui-network-lobby.md" />
     <None Include="docs\network-core-overview.md" />
+    <None Include="Scene\UI\Main\MainLobbyCreatePanel.tscn" />
+    <None Include="Scene\UI\Main\MainLobbyPanel.tscn" />
+    <None Include="Scene\UI\Main\MainLobbyRoomItem.tscn" />
   </ItemGroup>
 </Project>

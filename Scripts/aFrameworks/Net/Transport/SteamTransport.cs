@@ -6,6 +6,7 @@ using Steamworks;
 
 public partial class SteamTransport : INetTransport
 {
+    public int PendingCreateMaxPlayers { get; set; } = 4;
     public bool InRoom { get; private set; }
     public ulong LocalID => SteamUser.GetSteamID().m_SteamID;
 
@@ -87,7 +88,8 @@ public partial class SteamTransport : INetTransport
 
     public void CreateRoom()
     {
-        SteamMatchmaking.CreateLobby(ELobbyType.k_ELobbyTypePublic, 4);
+        int maxPlayers = Mathf.Max(PendingCreateMaxPlayers, 1);
+        SteamMatchmaking.CreateLobby(ELobbyType.k_ELobbyTypePublic, maxPlayers);
     }
 
     public void JoinRoom(string roomId)

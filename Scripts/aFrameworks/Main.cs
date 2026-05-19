@@ -2,6 +2,12 @@ using System;
 using System.Collections.Generic;
 using Godot;
 
+public enum ENetLobbyDisplayType
+{
+    Steam,
+    Lan
+}
+
 public partial class Main : Singleton<Main>
 {
     public CanvasLayer uiLayer;
@@ -10,6 +16,11 @@ public partial class Main : Singleton<Main>
     public Control transition;
     public LanDiscoveryService lanDiscoveryService;
     List<Node> importantUIList = new List<Node>();
+    INetTransport observedTransport;
+    GameContext pendingCreateContext;
+    ENetLobbyDisplayType currentLobbyDisplayType;
+    public event Action<GameContext, ENetLobbyDisplayType> OnlineRoomCreated;
+    public event Action<ENetLobbyDisplayType> OnlineRoomJoined;
 
     [Export]
     AudioStreamPlayer bgmPlayer;
@@ -86,7 +97,10 @@ public partial class Main : Singleton<Main>
     }
     public void ResetAndReturnToMenu()
     {
+        pendingCreateContext = null;
+        Game.PendingOnlineContext = null;
         ClearAllUnimportantUI();
+        StopObservingTransport();
         TransportManager.Instance.Deactive();
         NetManager.Instance.Deactive();
         if (Game.instance != null)
@@ -109,12 +123,96 @@ public partial class Main : Singleton<Main>
         var menu = Global.GetObj<Control>("res://Scene/UI/Main/Menu.tscn");
         AddUI(menu);
     }
+    public void OpenLobbyPanel(ENetLobbyDisplayType displayType)
+    {
+        var panel = Global.GetObj<MainLobbyPanel>("res://Scene/UI/Main/MainLobbyPanel.tscn");
+        panel.DisplayType = displayType;
+        AddUI(panel);
+    }
+    public void StartCreateLobby(GameContext context, ENetLobbyDisplayType displayType)
+    {
+        if (context == null)
+            context = new GameContext();
+
+        pendingCreateContext = context;
+        EnsureNetworkServices(displayType);
+        ClearAllUnimportantUI();
+        ShowWaitingPanel();
+        TransportManager.Instance.Current?.CreateRoom();
+    }
+    public void StartJoinLobby(string roomId, ENetLobbyDisplayType displayType)
+    {
+        EnsureNetworkServices(displayType);
+        pendingCreateContext = null;
+        ClearAllUnimportantUI();
+        ShowWaitingPanel();
+        TransportManager.Instance.Current?.JoinRoom(roomId);
+    }
+    public void EnsureNetworkServices(ENetLobbyDisplayType displayType)
+    {
+        currentLobbyDisplayType = displayType;
+        lanDiscoveryService?.StopAll();
+        waitingPanel.Hide();
+        StopObservingTransport();
+        NetManager.Instance.Start();
+        if (displayType == ENetLobbyDisplayType.Steam)
+        {
+            TransportManager.Instance.UseSteam();
+            if (TransportManager.Instance.Current is SteamTransport steamTransport)
+                steamTransport.PendingCreateMaxPlayers = Mathf.Max(pendingCreateContext?.MaxPlayers ?? 4, 1);
+        }
+        else
+            TransportManager.Instance.UseLan();
+        ObserveCurrentTransport();
+    }
+    public void CreateOnlineGame(GameContext context)
+    {
+        Game.PendingOnlineContext = context;
+        // 这里预留给外部更完整的游戏实例创建与初始化逻辑。
+        OnlineRoomCreated?.Invoke(context, currentLobbyDisplayType);
+    }
     public void ShowWaitingPanel()
     {
         waitingPanel.Show();
     }
 
     private Tween tween;
+    void ObserveCurrentTransport()
+    {
+        observedTransport = TransportManager.Instance.Current;
+        if (observedTransport != null)
+            observedTransport.RoomStateChanged += OnCurrentTransportRoomStateChanged;
+    }
+    void StopObservingTransport()
+    {
+        if (observedTransport != null)
+            observedTransport.RoomStateChanged -= OnCurrentTransportRoomStateChanged;
+        observedTransport = null;
+    }
+    void OnCurrentTransportRoomStateChanged()
+    {
+        var transport = TransportManager.Instance.Current;
+        if (transport == null || !transport.InRoom)
+            return;
+
+        ShowWaitingPanel();
+
+        if (pendingCreateContext != null)
+        {
+            var context = pendingCreateContext;
+            pendingCreateContext = null;
+
+            if (currentLobbyDisplayType == ENetLobbyDisplayType.Lan)
+                lanDiscoveryService?.StartHosting(context.RoomName);
+            else
+                SteamManager.Instance?.ApplyCurrentLobbyMetadata(context);
+
+            CreateOnlineGame(context);
+            return;
+        }
+
+        OnlineRoomJoined?.Invoke(currentLobbyDisplayType);
+    }
     public void PlayTransition(bool forward)
     {
         tween?.Kill();

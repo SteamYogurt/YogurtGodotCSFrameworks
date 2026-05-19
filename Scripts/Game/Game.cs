@@ -5,6 +5,7 @@ using Godot;
 public partial class Game : Node,INetObject
 {
     public static Game instance;
+    public static GameContext PendingOnlineContext { get; set; }
     private readonly Dictionary<ulong, Player> _playersById = new();
     private readonly List<Player> _localPlayers = new();
     private readonly HashSet<ulong> _pendingPlayerDestroyIds = new();
@@ -64,7 +65,11 @@ public partial class Game : Node,INetObject
     }
     public void HostInitialize()
     {
-
+        if (IsOnline && PendingOnlineContext != null)
+        {
+            SetupFromContext(PendingOnlineContext);
+            PendingOnlineContext = null;
+        }
     }
     [Export]
     public ObjectInfo Info { get; set; }
