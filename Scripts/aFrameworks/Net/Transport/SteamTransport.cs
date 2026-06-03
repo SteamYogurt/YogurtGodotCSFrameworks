@@ -28,6 +28,7 @@ public partial class SteamTransport : INetTransport
     Callback<LobbyChatUpdate_t> lobbyChatUpdateCallback;
 
     public event Action NetPlayerListChanged;
+    public event Action RoomJoined;
     public event Action RoomStateChanged;
     public event Action HostQuit;
 
@@ -209,6 +210,7 @@ public partial class SteamTransport : INetTransport
         UpdateHostID();
         ClearP2P();
         RefreshMemberCache(); // 强制刷新缓存
+        RoomJoined?.Invoke();
         RoomStateChanged?.Invoke();
     }
 

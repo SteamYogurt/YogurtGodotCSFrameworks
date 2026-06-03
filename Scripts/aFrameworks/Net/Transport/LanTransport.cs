@@ -23,6 +23,7 @@ public partial class LanTransport : INetTransport
     public IReadOnlyDictionary<ulong, LanPlayerInfo> Players => players;
 
     public event Action NetPlayerListChanged;
+    public event Action RoomJoined;
     public event Action RoomStateChanged;
     public event Action HostQuit;
 
@@ -104,6 +105,7 @@ public partial class LanTransport : INetTransport
         acceptThread.Start();
 
         playerListDirty = true;
+        RoomJoined?.Invoke();
         RoomStateChanged?.Invoke();
         GD.Print("Room Created. LocalID: " + LocalID);
         return;
@@ -152,6 +154,7 @@ public partial class LanTransport : INetTransport
             t.Start();
 
             InRoom = true;
+            RoomJoined?.Invoke();
             RoomStateChanged?.Invoke();
             GD.Print("Joined Room.");
         }

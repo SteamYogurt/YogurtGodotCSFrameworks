@@ -31,6 +31,7 @@ public partial interface INetTransport
     /// <returns></returns>
     public List<INetTransportPlayerInfo> GetTempNetPlayerInfos();
     public event Action NetPlayerListChanged;
+    public event Action RoomJoined;
     public event Action RoomStateChanged;
     public event Action HostQuit;
 }
