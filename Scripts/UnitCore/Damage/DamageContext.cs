@@ -7,7 +7,7 @@ public enum DamageTag
     None = 0,
     Projectile = 1 << 0,
     Dot = 1 << 1,
-    Explosion = 1 << 2,// 目前这条更接近范围伤害的概念
+    Explosion = 1 << 2,
     BasicAttack = 1 << 3,
     Skill = 1 << 4,
     Flame = 1 << 5,
@@ -42,17 +42,13 @@ public class DamageSourceInfo
 {
     public DamageSourceKind Kind;
     public object SourceObject;
-    public Projectile Projectile;
     public BuffInstance BuffInstance;
     public Buff Buff;
-    public PromotionEffect PromotionEffect;
 
     public void BindSourceObject(object sourceObject)
     {
         SourceObject = sourceObject;
-        Projectile = sourceObject as Projectile;
         BuffInstance = sourceObject as BuffInstance;
-        PromotionEffect = sourceObject as PromotionEffect;
 
         if (BuffInstance != null)
         {
@@ -92,7 +88,7 @@ public class DamageContext
     public bool IsCrit;
     public bool IsRanged;
 
-    public float RandomValue; 
+    public float RandomValue;
     public bool ShowText = true;
 
     public DamageTag DamageTags = DamageTag.None;

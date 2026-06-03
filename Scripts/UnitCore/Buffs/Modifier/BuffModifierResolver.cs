@@ -69,7 +69,7 @@ public static class BuffModifierResolver
         List<BuffModifier> result = new();
         HashSet<object> addedOwners = new();
 
-        AddOwnerModifiers(result, addedOwners, Game.instance);
+        AddOwnerModifiers(result, addedOwners, UnitCoreModifiers.GlobalOwner);
         AddOwnerModifiers(result, addedOwners, context.Owner);
         AddOwnerModifiers(result, addedOwners, context.Caster);
         AddOwnerModifiers(result, addedOwners, context.BuffInstance);

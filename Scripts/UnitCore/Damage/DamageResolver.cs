@@ -76,7 +76,7 @@ public static class DamageResolver
 
         if (ctx.ShowText)
         {
-            IUnitExt.SpawnDamageText(ctx);
+            DamageFeedback.SpawnText?.Invoke(ctx);
         }
 
         ctx.Stage = DamageResolveStage.Applied;
@@ -104,16 +104,16 @@ public static class DamageResolver
     {
         ctx.Attacker?.NotifyDealingDamage(ctx);
         ctx.Target.NotifyReceivingDamage(ctx);
-        Game.instance?.NotifyDealingDamage(ctx);
-        Game.instance?.NotifyReceivingDamage(ctx);
+        UnitCoreEvents.RaiseDealingDamage(ctx);
+        UnitCoreEvents.RaiseReceivingDamage(ctx);
     }
 
     static void InvokeAfterCallbacks(DamageContext ctx)
     {
         ctx.Attacker?.NotifyDealtDamage(ctx);
         ctx.Target.NotifyReceivedDamage(ctx);
-        Game.instance?.NotifyDealtDamage(ctx);
-        Game.instance?.NotifyReceivedDamage(ctx);
+        UnitCoreEvents.RaiseDealtDamage(ctx);
+        UnitCoreEvents.RaiseReceivedDamage(ctx);
     }
 
     static List<DamageModifier> CollectModifiers(DamageContext ctx)
@@ -121,7 +121,7 @@ public static class DamageResolver
         List<DamageModifier> result = new();
         HashSet<object> addedOwners = new();
 
-        AddOwnerModifiers(result, addedOwners, Game.instance);
+        AddOwnerModifiers(result, addedOwners, UnitCoreModifiers.GlobalOwner);
         AddOwnerModifiers(result, addedOwners, ctx.Attacker);
         AddOwnerModifiers(result, addedOwners, ctx.Target);
         AddOwnerModifiers(result, addedOwners, ctx.Source?.SourceObject);

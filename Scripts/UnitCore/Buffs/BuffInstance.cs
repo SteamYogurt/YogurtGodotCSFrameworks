@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using Godot;
 
@@ -26,7 +25,7 @@ public class BuffInstance
     readonly List<BuffModifier> _appliedBuffModifiers = new();
     public List<BuffModifier> AppliedBuffModifiers => _appliedBuffModifiers;
 
-    readonly List<Action> _cleanupActions = new();
+    readonly List<System.Action> _cleanupActions = new();
     bool _isCleanedUp;
 
     public BuffInstance(Buff data, IUnit owner, object caster, int stacks = 1)
@@ -50,20 +49,7 @@ public class BuffInstance
         Caster = caster;
     }
 
-    public IUnit ResolveCasterUnit()
-    {
-        if (Caster is IUnit unit)
-        {
-            return unit;
-        }
-
-        if (Caster is Projectile projectile)
-        {
-            return projectile.SourceUnit;
-        }
-
-        return null;
-    }
+    public IUnit ResolveCasterUnit() => Caster as IUnit;
 
     public void RefreshResolvedBuffValues()
     {
@@ -78,20 +64,11 @@ public class BuffInstance
         BuffModifierResolver.RefreshRuntimeValues(this);
     }
 
-    public float GetResolvedDuration()
-    {
-        return ResolvedDuration;
-    }
+    public float GetResolvedDuration() => ResolvedDuration;
 
-    public float GetResolvedTickInterval()
-    {
-        return Mathf.Max(0.0001f, ResolvedTickInterval);
-    }
+    public float GetResolvedTickInterval() => Mathf.Max(0.0001f, ResolvedTickInterval);
 
-    public int GetResolvedMaxStacks()
-    {
-        return Mathf.Max(1, ResolvedMaxStacks);
-    }
+    public int GetResolvedMaxStacks() => Mathf.Max(1, ResolvedMaxStacks);
 
     public float ResolveEffectValue(float baseValue)
     {
@@ -138,7 +115,7 @@ public class BuffInstance
         return runtimeModifier;
     }
 
-    public void AddCleanup(Action cleanupAction)
+    public void AddCleanup(System.Action cleanupAction)
     {
         if (cleanupAction == null || _isCleanedUp)
         {
@@ -215,7 +192,7 @@ public class BuffInstance
             {
                 _cleanupActions[i]?.Invoke();
             }
-            catch (Exception e)
+            catch (System.Exception e)
             {
                 GD.PrintErr($"Buff cleanup failed: {e}");
             }

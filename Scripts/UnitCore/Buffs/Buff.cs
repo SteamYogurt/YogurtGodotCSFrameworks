@@ -11,12 +11,12 @@ public partial class Buff : Resource
         = new System.Collections.Generic.Dictionary<StringName, Buff>();
     public static uint numID = 0;
 
-    public static void BuffInit()
+    public static void BuffInit(string path = "res://Data/Buff/")
     {
-        LoadFrom("res://Data/Buff/");
+        LoadFrom(path);
     }
 
-    static void LoadFrom(string openPath)
+    public static void LoadFrom(string openPath)
     {
         if (openPath[openPath.Length - 2] == '_') return;
         string[] psArr = ResourceLoader.ListDirectory(openPath);

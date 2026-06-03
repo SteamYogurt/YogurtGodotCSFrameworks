@@ -4,21 +4,21 @@ using Godot;
 [GlobalClass]
 public partial class StunBuff : Buff
 {
-    const MonsterControlFlag StunFlags =
-        MonsterControlFlag.DisableMove
-        | MonsterControlFlag.DisableAttack
-        | MonsterControlFlag.DisableThink;
+    const UnitControlFlag StunFlags =
+        UnitControlFlag.DisableMove
+        | UnitControlFlag.DisableAttack
+        | UnitControlFlag.DisableThink;
 
     public override void OnEnter(BuffInstance instance)
     {
-        if (instance.Owner is not IMonsterControlHost host)
+        if (instance.Owner is not IUnitControlHost host)
         {
             instance.IsFinished = true;
             return;
         }
 
-        host.MonsterControlController.AddFlags(StunFlags);
-        instance.AddCleanup(() => host.MonsterControlController.RemoveFlags(StunFlags));
+        host.UnitControlController.AddFlags(StunFlags);
+        instance.AddCleanup(() => host.UnitControlController.RemoveFlags(StunFlags));
     }
 
     public override string GetBuffDes()

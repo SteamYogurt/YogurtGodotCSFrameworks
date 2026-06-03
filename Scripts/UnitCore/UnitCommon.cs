@@ -1,7 +1,4 @@
-using System.Collections.Generic;
 using Godot;
-using static Godot.WebSocketPeer;
-using static TempLabel;
 
 public enum UnitStatType
 {
@@ -17,18 +14,20 @@ public enum UnitStatType
     MoveSpeed,
     CritRate
 }
+
 public static class UnitStatTypeExt
 {
     public static Texture2D GetTexture(this UnitStatType statType)
     {
         var path = $"res://Assets/Art/Icon/Stat/{statType}.png";
-        if(!ResourceLoader.Exists(path))
+        if (!ResourceLoader.Exists(path))
         {
             return GD.Load<Texture2D>("res://icon.svg");
         }
         return GD.Load<Texture2D>(path);
     }
 }
+
 public static class IUnitExt
 {
     public static void InitUnit(this IUnit unit)
@@ -60,13 +59,14 @@ public static class IUnitExt
 
         unit.IsAlive = true;
     }
+
     public static DamageContext CreateDamageContext(
-      IUnit attacker,
-      IUnit target,
-      float physDamage,
-      float magicalDamage,
-      float realDamage,
-      float rand1 = 0f)
+        IUnit attacker,
+        IUnit target,
+        float physDamage,
+        float magicalDamage,
+        float realDamage,
+        float rand1 = 0f)
     {
         var ctx = new DamageContext(attacker, target, rand1)
         {
@@ -142,16 +142,6 @@ public static class IUnitExt
         DamageResolver.Execute(ctx, invokeCallbacks);
     }
 
-    public static void StdExecuteDamage(DamageContext ctx)
-    {
-        ExecuteDamage(ctx);
-    }
-
-    static void ResolveCritical(DamageContext ctx)
-    {
-        DamageResolver.ResolveCritical(ctx);
-    }
-
     public static void ApplyDamageImpact(DamageContext ctx)
     {
         float damageLeft = ctx.GetTotalFinalDamage();
@@ -184,70 +174,8 @@ public static class IUnitExt
         }
     }
 
-    static ObjectPool textPool;
-    public static void SpawnDamageText(DamageContext ctx)
-    {
-        if (ctx.Target is not Node3D targetNode) return;
-
-        if (ctx.FinalPhysicalDamage <= 0 && ctx.FinalMagicalDamage <= 0 && ctx.FinalRealDamage <= 0) return;
-
-        if (textPool == null)
-        {
-            textPool = ObjectPoolManager.GetObjectPool("TempLabel");
-        }
-
-        Vector2 basePosition = Game.instance.camera.UnprojectPosition(targetNode.Position);
-        FloatType floatType = ctx.IsCrit ? FloatType.Static : FloatType.RandomUp;
-        DecorationType deco = ctx.IsCrit ? DecorationType.Critical : DecorationType.None;
-
-        if (ctx.FinalPhysicalDamage > 0)
-        {
-            SpawnSingleDamageText(
-                Mathf.RoundToInt(ctx.FinalPhysicalDamage).ToString(),
-                DamageColorType.Physical,
-                deco,
-                floatType,
-                basePosition + new Vector2(-16, 0)
-            );
-        }
-
-        if (ctx.FinalMagicalDamage > 0)
-        {
-            SpawnSingleDamageText(
-                Mathf.RoundToInt(ctx.FinalMagicalDamage).ToString(),
-                DamageColorType.Magical,
-                deco,
-                floatType,
-                basePosition + new Vector2(16, -8)
-            );
-        }
-        if (ctx.FinalRealDamage > 0)
-        {
-            SpawnSingleDamageText(
-                Mathf.RoundToInt(ctx.FinalRealDamage).ToString(),
-                DamageColorType.Real,
-                deco,
-                floatType,
-                basePosition + new Vector2(0, -16)
-            );
-        }
-    }
-
-    private static void SpawnSingleDamageText(
-        string damageText,
-        DamageColorType colorType,
-        DecorationType deco,
-        FloatType floatType,
-        Vector2 position)
-    {
-        var label = textPool.GetObject<TempLabel>();
-        label.Position = position;
-        Game.instance.canvasLayer.AddChild(label);
-        label.Setup(damageText, colorType, deco, floatType);
-    }
     public static void ApplyStatModifier(this IUnit unit, UnitStatType statType, StatModifier mod)
     {
-        // 确保字典已初始化
         unit.UnitStatCollection ??= new StatCollection();
         var iniVal = unit.UnitStatCollection.GetValue(statType, 0);
         unit.UnitStatCollection.AddModifier(statType, mod);
@@ -255,9 +183,6 @@ public static class IUnitExt
         unit.NotifyStatChanged(statType, afVal - iniVal);
     }
 
-    /// <summary>
-    /// 移除指定来源的所有修饰符
-    /// </summary>
     public static void RemoveStatModifier(this IUnit unit, UnitStatType statType, object source)
     {
         if (unit.UnitStatCollection != null)
@@ -273,10 +198,13 @@ public static class IUnitExt
     {
         unit.UnitStatCollection.SetBase(statType, val);
     }
+
     public static float GetUnitStat(this IUnit unit, UnitStatType statType, float baseVal)
     {
-        var dict = unit.UnitStatCollection;
-        if (dict == null) return baseVal;
+        if (unit.UnitStatCollection == null)
+        {
+            return baseVal;
+        }
         return unit.UnitStatCollection.GetValue(statType, baseVal);
     }
 }
