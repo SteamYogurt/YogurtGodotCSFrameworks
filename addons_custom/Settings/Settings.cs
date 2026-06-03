@@ -129,7 +129,7 @@ public partial class Settings : Control
         Resolution.ItemSelected += id =>
         {
             if (loading) return;
-            UserInfo.Instance.Resolution = (EResolution)id;
+            //UserInfo.Instance.Resolution = (EResolution)id;
         };
 
         VSync.Toggled += v =>
@@ -187,7 +187,7 @@ public partial class Settings : Control
         BgSlider.Value = Global.GetVolValue(u.BgVol);
         EffSlider.Value = Global.GetVolValue(u.EffVol);
 
-        Resolution.Select((int)u.Resolution);
+        //Resolution.Select((int)u.Resolution);
 
         loading = false;
     }

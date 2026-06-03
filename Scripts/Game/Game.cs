@@ -440,8 +440,6 @@ public partial class Game : Node,INetObject
     }
     public void INetSpawn()
     {
-        TestNetTrans.instance.AddChild(this);
-        return;
         Main.Instance.AddGame(this);
         Main.Instance.waitingPanel?.Hide();
         //Main.Instance.AddChild(this);

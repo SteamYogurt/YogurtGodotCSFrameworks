@@ -30,6 +30,12 @@ public partial class Main : Singleton<Main>
     public PackedScene waitingPanelScene;
     [Export]
     public PackedScene transitionScene;
+    [Export]
+    public PackedScene menuScene;
+    [Export]
+    public PackedScene settingsScene;
+    [Export]
+    public PackedScene lobbyPanelScene;
     public static void Print(string content)
     {
         var transport = TransportManager.Instance?.Current;
@@ -183,6 +189,9 @@ public partial class Main : Singleton<Main>
     {
         Game.PendingOnlineContext = context;
         // 这里预留给外部更完整的游戏实例创建与初始化逻辑。
+        var game = ObjectPoolManager.GetPossibleObject<Game>("Game");
+        game.IsOnline = true;
+        Game.AuthorizedNetSpawn(game, true);
         OnlineRoomCreated?.Invoke(context, currentLobbyDisplayType);
     }
     public void ShowWaitingPanel()
@@ -208,11 +217,12 @@ public partial class Main : Singleton<Main>
         var transport = TransportManager.Instance.Current;
         if (transport == null || !transport.InRoom)
             return;
-
+        Main.Print("检测到房间状态变化");
         ShowWaitingPanel();
 
         if (pendingCreateContext != null)
         {
+            Main.Print("尝试创建在线游戏");
             var context = pendingCreateContext;
             pendingCreateContext = null;
 

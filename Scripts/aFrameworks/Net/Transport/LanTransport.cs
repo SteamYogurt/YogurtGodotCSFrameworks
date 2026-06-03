@@ -95,6 +95,18 @@ public partial class LanTransport : INetTransport
             IsHost = true
         };
 
+
+        listener = new TcpListener(IPAddress.Any, PORT);
+        listener.Start();
+
+        running = true;
+        acceptThread = new Thread(AcceptLoop) { IsBackground = true };
+        acceptThread.Start();
+
+        playerListDirty = true;
+        RoomStateChanged?.Invoke();
+        GD.Print("Room Created. LocalID: " + LocalID);
+        return;
         try
         {
             listener = new TcpListener(IPAddress.Any, PORT);
