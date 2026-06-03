@@ -7,7 +7,6 @@ public partial class Settings : Control
 
     [Export] OptionButton Language;
     [Export] OptionButton WindowMode;
-    [Export] CheckBox reverseYCheck;
 
     /* ---------------- Audio ---------------- */
 
@@ -85,11 +84,6 @@ public partial class Settings : Control
             UserInfo.Instance.WindowMode = mode;
         };
 
-        reverseYCheck.Toggled += v =>
-        {
-            if (loading) return;
-            UserInfo.Instance.reverseY = reverseYCheck.ButtonPressed;
-        };
     }
 
     /* ---------------- Audio ---------------- */
@@ -188,7 +182,6 @@ public partial class Settings : Control
         };
 
         WindowMode.Select(wm);
-        reverseYCheck.ButtonPressed = UserInfo.Instance.reverseY;
 
         MasterSlider.Value = Global.GetVolValue(u.MasterVol);
         BgSlider.Value = Global.GetVolValue(u.BgVol);

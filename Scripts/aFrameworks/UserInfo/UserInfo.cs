@@ -94,7 +94,7 @@ public partial class UserInfo : Singleton<UserInfo>
             DisplayServer.WindowSetMode(windowMode, 0);
         }
     }
-    DisplayServer.WindowMode windowMode = DisplayServer.WindowMode.ExclusiveFullscreen;
+    DisplayServer.WindowMode windowMode = DisplayServer.WindowMode.Windowed;
 
     [Export]
     public Language Language
@@ -140,104 +140,7 @@ public partial class UserInfo : Singleton<UserInfo>
         };
         return scale;
     }
-    [Export]
-    public bool reverseY = false;
 
-    [Export]
-    public string MapName
-    {
-        get
-        {
-            if (string.IsNullOrEmpty(mapName))
-            {
-                return "Map01";
-            }
-            return mapName;
-        }
-        set
-        {
-            mapName = value;
-        }
-    }
-    string mapName;
-    [Export]
-    public string KartName
-    {
-        get
-        {
-            if (string.IsNullOrEmpty(kartName))
-            {
-                return "Kart01";
-            }
-            return kartName;
-        }
-        set
-        {
-            kartName = value;
-        }
-    }
-    string kartName;
-    [Export]
-    public string ChrName
-    {
-        get
-        {
-            if (string.IsNullOrEmpty(chrName))
-            {
-                return "Chr01";
-            }
-            return chrName;
-        }
-        set
-        {
-            chrName = value;
-        }
-    }
-    string chrName;
-
-    [Export]
-    public Array<string> unlockedKarts = new Array<string>() { "Kart01" };
-    [Export]
-    public Array<string> unlockedChrs= new Array<string>() { "Chr01" };
-    public bool IsKartUnlocked(string id)
-    {
-        return unlockedKarts.Contains(id);
-    }
-
-    public bool IsChrUnlocked(string id)
-    {
-        return unlockedChrs.Contains(id);
-    }
-
-    public void UnlockKart(string id)
-    {
-        if (!unlockedKarts.Contains(id))
-            unlockedKarts.Add(id);
-    }
-
-    public void UnlockChr(string id)
-    {
-        if (!unlockedChrs.Contains(id))
-            unlockedChrs.Add(id);
-    }
-
-    [Export]
-    public int cash = 0;
-    public event Action CashChanged;
-    public bool CanAfford(int price)
-    {
-        return cash >= price;
-    }
-
-    public bool SpendCash(int price)
-    {
-        if (cash < price)
-            return false;
-
-        cash -= price;
-        CashChanged?.Invoke();
-        return true;
-    }
 
     bool inited = false;
     public void Init()

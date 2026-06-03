@@ -1,8 +1,8 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene format=3 uid="uid://bv6o5f80huekf"]
 
-[ext_resource type="Script" path="res://Scripts/MainUI/MainLobbyCreatePanel.cs" id="1_script"]
+[ext_resource type="Script" uid="uid://c5w6y2cuwk6eq" path="res://Scripts/MainUI/MainLobbyCreatePanel.cs" id="1_script"]
 
-[node name="MainLobbyCreatePanel" type="Control"]
+[node name="MainLobbyCreatePanel" type="Control" unique_id=117972091 node_paths=PackedStringArray("modeLabel", "roomNameEdit", "maxPlayersSpin", "midJoinableCheck", "visibilityOption", "createButton", "cancelButton")]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -10,8 +10,15 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1_script")
+modeLabel = NodePath("Panel/Root/VBox/ModeLabel")
+roomNameEdit = NodePath("Panel/Root/VBox/RoomNameEdit")
+maxPlayersSpin = NodePath("Panel/Root/VBox/MaxPlayersSpin")
+midJoinableCheck = NodePath("Panel/Root/VBox/MidJoinableCheck")
+visibilityOption = NodePath("Panel/Root/VBox/VisibilityOption")
+createButton = NodePath("Panel/Root/VBox/Buttons/CreateButton")
+cancelButton = NodePath("Panel/Root/VBox/Buttons/CancelButton")
 
-[node name="Panel" type="Panel" parent="."]
+[node name="Panel" type="Panel" parent="." unique_id=546790083]
 layout_mode = 1
 anchors_preset = 8
 anchor_left = 0.5
@@ -25,7 +32,7 @@ offset_bottom = 180.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="Root" type="MarginContainer" parent="Panel"]
+[node name="Root" type="MarginContainer" parent="Panel" unique_id=2040094574]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -37,52 +44,51 @@ offset_bottom = -16.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="VBox" type="VBoxContainer" parent="Panel/Root"]
+[node name="VBox" type="VBoxContainer" parent="Panel/Root" unique_id=544336494]
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
 theme_override_constants/separation = 10
 
-[node name="ModeLabel" type="Label" parent="Panel/Root/VBox"]
+[node name="ModeLabel" type="Label" parent="Panel/Root/VBox" unique_id=1347320467]
 layout_mode = 2
 text = "创建房间"
 
-[node name="RoomNameEdit" type="LineEdit" parent="Panel/Root/VBox"]
+[node name="RoomNameEdit" type="LineEdit" parent="Panel/Root/VBox" unique_id=113308654]
 layout_mode = 2
 placeholder_text = "房间名"
 
-[node name="MaxPlayersLabel" type="Label" parent="Panel/Root/VBox"]
+[node name="MaxPlayersLabel" type="Label" parent="Panel/Root/VBox" unique_id=713244079]
 layout_mode = 2
 text = "最大人数"
 
-[node name="MaxPlayersSpin" type="SpinBox" parent="Panel/Root/VBox"]
+[node name="MaxPlayersSpin" type="SpinBox" parent="Panel/Root/VBox" unique_id=97647832]
 layout_mode = 2
 min_value = 1.0
 max_value = 8.0
-step = 1.0
 value = 4.0
 
-[node name="MidJoinableCheck" type="CheckBox" parent="Panel/Root/VBox"]
+[node name="MidJoinableCheck" type="CheckBox" parent="Panel/Root/VBox" unique_id=996303899]
 layout_mode = 2
 button_pressed = true
 text = "允许中途加入"
 
-[node name="VisibilityLabel" type="Label" parent="Panel/Root/VBox"]
+[node name="VisibilityLabel" type="Label" parent="Panel/Root/VBox" unique_id=923283157]
 layout_mode = 2
 text = "可见性"
 
-[node name="VisibilityOption" type="OptionButton" parent="Panel/Root/VBox"]
+[node name="VisibilityOption" type="OptionButton" parent="Panel/Root/VBox" unique_id=163028938]
 layout_mode = 2
 
-[node name="Buttons" type="HBoxContainer" parent="Panel/Root/VBox"]
+[node name="Buttons" type="HBoxContainer" parent="Panel/Root/VBox" unique_id=781434207]
 layout_mode = 2
-alignment = 1
 theme_override_constants/separation = 8
+alignment = 1
 
-[node name="CreateButton" type="Button" parent="Panel/Root/VBox/Buttons"]
+[node name="CreateButton" type="Button" parent="Panel/Root/VBox/Buttons" unique_id=1215244448]
 layout_mode = 2
 text = "创建房间"
 
-[node name="CancelButton" type="Button" parent="Panel/Root/VBox/Buttons"]
+[node name="CancelButton" type="Button" parent="Panel/Root/VBox/Buttons" unique_id=513321206]
 layout_mode = 2
 text = "返回"

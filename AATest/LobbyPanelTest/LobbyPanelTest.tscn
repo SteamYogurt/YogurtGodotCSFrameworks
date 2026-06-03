@@ -1,0 +1,54 @@
+[gd_scene format=3 uid="uid://cbgo5hsahkuo5"]
+
+[ext_resource type="Script" uid="uid://ymfn07skytpq" path="res://Scripts/aFrameworks/Main.cs" id="1_0t8ys"]
+[ext_resource type="Script" uid="uid://cl5tsl0ftwsax" path="res://AATest/LobbyPanelTest/LobbyPanelTest.cs" id="1_tc8xx"]
+[ext_resource type="PackedScene" uid="uid://bh3qhvktdj1yh" path="res://Scene/UI/Main/MainLobbyPanel.tscn" id="3_ca7eb"]
+
+[node name="Main" type="Node" unique_id=1880415196]
+script = ExtResource("1_0t8ys")
+
+[node name="LobbyPanelTest" type="Control" parent="." unique_id=2144304845 node_paths=PackedStringArray("steamLobbyPanelButton", "lanLobbyPanelButton")]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_tc8xx")
+steamLobbyPanelButton = NodePath("Panel/VBoxContainer/Steam")
+lanLobbyPanelButton = NodePath("Panel/VBoxContainer/Lan")
+mainLobbyPanelScene = ExtResource("3_ca7eb")
+
+[node name="Panel" type="Panel" parent="LobbyPanelTest" unique_id=643011102]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -122.0
+offset_top = -142.0
+offset_right = 110.0
+offset_bottom = 179.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="VBoxContainer" type="VBoxContainer" parent="LobbyPanelTest/Panel" unique_id=2026924712]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = 31.0
+offset_bottom = -25.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 30
+alignment = 1
+
+[node name="Steam" type="Button" parent="LobbyPanelTest/Panel/VBoxContainer" unique_id=1908673186]
+layout_mode = 2
+text = "Steam"
+
+[node name="Lan" type="Button" parent="LobbyPanelTest/Panel/VBoxContainer" unique_id=839614553]
+layout_mode = 2
+text = "Lan"

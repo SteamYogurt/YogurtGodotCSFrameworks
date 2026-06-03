@@ -14,6 +14,9 @@ public partial class MainLobbyPanel : Control
     [Export] public Button createButton;
     [Export] public Button backButton;
 
+    [Export] public PackedScene lobbyEntranceItemScene;
+    [Export] public PackedScene createPanelScene;
+
     readonly List<MainLobbyRoomItem> roomItems = new();
     MainLobbyRoomItem selectedItem;
 
@@ -110,7 +113,8 @@ public partial class MainLobbyPanel : Control
 
     void OpenCreatePanel()
     {
-        var panel = Global.GetObj<MainLobbyCreatePanel>("res://Scene/UI/Main/MainLobbyCreatePanel.tscn");
+        if (createPanelScene == null) return;
+        var panel = createPanelScene.Instantiate<MainLobbyCreatePanel>();
         panel.DisplayType = DisplayType;
         panel.BindReturnPanel(this);
         Hide();
@@ -165,9 +169,11 @@ public partial class MainLobbyPanel : Control
             return;
         }
 
+        if (lobbyEntranceItemScene == null) return;
+
         foreach (var room in rooms)
         {
-            var item = Global.GetObj<MainLobbyRoomItem>("res://Scene/UI/Main/MainLobbyRoomItem.tscn");
+            var item = lobbyEntranceItemScene.Instantiate<MainLobbyRoomItem>();
             item.Setup(getRoomId(room), getRoomName(room), getDetail(room), getJoinable(room));
             item.Selected += OnRoomItemSelected;
             roomListContainer?.AddChild(item);

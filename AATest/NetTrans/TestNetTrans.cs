@@ -21,6 +21,7 @@ public partial class TestNetTrans : Control
         {
             hostLobbyButton.Pressed += () =>
             {
+                if (!SteamManager.Instance.Inited) return;
                 TransportManager.Instance.UseLan();
                 var transport = TransportManager.Instance.Current;
                 transport.CreateRoom();

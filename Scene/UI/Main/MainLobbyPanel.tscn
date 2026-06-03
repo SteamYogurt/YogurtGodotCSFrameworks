@@ -1,8 +1,10 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene format=3 uid="uid://bh3qhvktdj1yh"]
 
-[ext_resource type="Script" path="res://Scripts/MainUI/MainLobbyPanel.cs" id="1_script"]
+[ext_resource type="Script" uid="uid://8m8jqbmceh3u" path="res://Scripts/MainUI/MainLobbyPanel.cs" id="1_script"]
+[ext_resource type="PackedScene" uid="uid://cu12pbon5xqxl" path="res://Scene/UI/Main/MainLobbyRoomItem.tscn" id="2_abt6y"]
+[ext_resource type="PackedScene" uid="uid://bv6o5f80huekf" path="res://Scene/UI/Main/MainLobbyCreatePanel.tscn" id="3_y55cu"]
 
-[node name="MainLobbyPanel" type="Control"]
+[node name="MainLobbyPanel" type="Control" unique_id=2016922983 node_paths=PackedStringArray("titleLabel", "statusLabel", "roomListContainer", "joinButton", "refreshButton", "createButton", "backButton")]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -10,8 +12,17 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1_script")
+titleLabel = NodePath("Panel/Root/VBox/Header/TitleLabel")
+statusLabel = NodePath("Panel/Root/VBox/StatusLabel")
+roomListContainer = NodePath("Panel/Root/VBox/RoomScroll/RoomList")
+joinButton = NodePath("Panel/Root/VBox/Buttons/JoinButton")
+refreshButton = NodePath("Panel/Root/VBox/Buttons/RefreshButton")
+createButton = NodePath("Panel/Root/VBox/Buttons/CreateButton")
+backButton = NodePath("Panel/Root/VBox/Buttons/BackButton")
+lobbyEntranceItemScene = ExtResource("2_abt6y")
+createPanelScene = ExtResource("3_y55cu")
 
-[node name="Panel" type="Panel" parent="."]
+[node name="Panel" type="Panel" parent="." unique_id=1120355076]
 layout_mode = 1
 anchors_preset = 8
 anchor_left = 0.5
@@ -25,7 +36,7 @@ offset_bottom = 220.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="Root" type="MarginContainer" parent="Panel"]
+[node name="Root" type="MarginContainer" parent="Panel" unique_id=1156757850]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -37,54 +48,55 @@ offset_bottom = -16.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="VBox" type="VBoxContainer" parent="Panel/Root"]
+[node name="VBox" type="VBoxContainer" parent="Panel/Root" unique_id=433510755]
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
 theme_override_constants/separation = 10
 
-[node name="Header" type="HBoxContainer" parent="Panel/Root/VBox"]
+[node name="Header" type="HBoxContainer" parent="Panel/Root/VBox" unique_id=538229745]
 layout_mode = 2
 
-[node name="TitleLabel" type="Label" parent="Panel/Root/VBox/Header"]
+[node name="TitleLabel" type="Label" parent="Panel/Root/VBox/Header" unique_id=1387077196]
 layout_mode = 2
 size_flags_horizontal = 3
 text = "大厅"
 
-[node name="StatusLabel" type="Label" parent="Panel/Root/VBox"]
+[node name="StatusLabel" type="Label" parent="Panel/Root/VBox" unique_id=1318065088]
 layout_mode = 2
 text = "状态"
 
-[node name="RoomScroll" type="ScrollContainer" parent="Panel/Root/VBox"]
+[node name="RoomScroll" type="ScrollContainer" parent="Panel/Root/VBox" unique_id=402013562]
 custom_minimum_size = Vector2(0, 240)
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
 
-[node name="RoomList" type="VBoxContainer" parent="Panel/Root/VBox/RoomScroll"]
+[node name="RoomList" type="VBoxContainer" parent="Panel/Root/VBox/RoomScroll" unique_id=1790434932]
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
 theme_override_constants/separation = 8
-
-[node name="Buttons" type="HBoxContainer" parent="Panel/Root/VBox"]
-layout_mode = 2
 alignment = 1
-theme_override_constants/separation = 8
 
-[node name="JoinButton" type="Button" parent="Panel/Root/VBox/Buttons"]
+[node name="Buttons" type="HBoxContainer" parent="Panel/Root/VBox" unique_id=1483219343]
 layout_mode = 2
-text = "加入房间"
-disabled = true
+theme_override_constants/separation = 8
+alignment = 1
 
-[node name="RefreshButton" type="Button" parent="Panel/Root/VBox/Buttons"]
+[node name="JoinButton" type="Button" parent="Panel/Root/VBox/Buttons" unique_id=1915251310]
+layout_mode = 2
+disabled = true
+text = "加入房间"
+
+[node name="RefreshButton" type="Button" parent="Panel/Root/VBox/Buttons" unique_id=417605208]
 layout_mode = 2
 text = "刷新房间"
 
-[node name="CreateButton" type="Button" parent="Panel/Root/VBox/Buttons"]
+[node name="CreateButton" type="Button" parent="Panel/Root/VBox/Buttons" unique_id=1181555671]
 layout_mode = 2
 text = "创建房间"
 
-[node name="BackButton" type="Button" parent="Panel/Root/VBox/Buttons"]
+[node name="BackButton" type="Button" parent="Panel/Root/VBox/Buttons" unique_id=244169710]
 layout_mode = 2
 text = "返回"

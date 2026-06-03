@@ -16,5 +16,8 @@
     <None Include="Scene\UI\Main\MainLobbyCreatePanel.tscn" />
     <None Include="Scene\UI\Main\MainLobbyPanel.tscn" />
     <None Include="Scene\UI\Main\MainLobbyRoomItem.tscn" />
+    <None Include="steam_api64.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 </Project>

@@ -1,11 +1,12 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene format=3 uid="uid://cu12pbon5xqxl"]
 
-[ext_resource type="Script" path="res://Scripts/MainUI/MainLobbyRoomItem.cs" id="1_script"]
+[ext_resource type="Script" uid="uid://y3gqssxcssdq" path="res://Scripts/MainUI/MainLobbyRoomItem.cs" id="1_script"]
 
-[node name="MainLobbyRoomItem" type="Button"]
-custom_minimum_size = Vector2(0, 64)
-focus_mode = 2
+[node name="MainLobbyRoomItem" type="Button" unique_id=416680058]
+custom_minimum_size = Vector2(0, 25)
+offset_right = 365.0
+offset_bottom = 31.0
 size_flags_horizontal = 3
-autowrap_mode = 3
 text = "Room"
+autowrap_mode = 3
 script = ExtResource("1_script")

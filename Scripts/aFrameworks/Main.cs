@@ -25,6 +25,11 @@ public partial class Main : Singleton<Main>
 
     [Export]
     AudioStreamPlayer bgmPlayer;
+    [ExportGroup("PackedScene")]
+    [Export]
+    public PackedScene waitingPanelScene;
+    [Export]
+    public PackedScene transitionScene;
     public static void Print(string content)
     {
         var transport = TransportManager.Instance?.Current;
@@ -58,21 +63,29 @@ public partial class Main : Singleton<Main>
         AddChild(new SteamManager());
         lanDiscoveryService = new LanDiscoveryService();
         AddChild(lanDiscoveryService);
-        waitingPanel = Global.GetObj<WaitingPanel>
-            ("res://Scene/UI/Main/WaitingPanel.tscn");
 
-        waitingPanel.Visible = false;
-        var wait_return_btn = waitingPanel.GetNodeOrNull<Button>("Panel/Cancel");
-        if (wait_return_btn != null)
-            wait_return_btn.Pressed += ResetAndReturnToMenu;
-        else GD.PrintErr("wait_return_btn null");
-        uiLayer.AddChild(waitingPanel);
-        importantUIList.Add(waitingPanel);
+        return;
+        if (waitingPanelScene != null)
+        {
+            waitingPanel = waitingPanelScene.Instantiate<WaitingPanel>();
+            waitingPanel.Visible = false;
 
-        transition = Global.GetObj<Control>
-            ("res://Scene/UI/Main/Transition.tscn");
-        uiLayer.AddChild(transition);
-        importantUIList.Add(transition);
+            var wait_return_btn = waitingPanel.GetNodeOrNull<Button>("Panel/Cancel");
+            if (wait_return_btn != null)
+                wait_return_btn.Pressed += ResetAndReturnToMenu;
+            else GD.PrintErr("wait_return_btn null");
+
+            uiLayer.AddChild(waitingPanel);
+            importantUIList.Add(waitingPanel);
+        }
+        if (transitionScene != null)
+        {
+            transition = Global.GetObj<Control>
+         ("res://Scene/UI/Main/Transition.tscn");
+            uiLayer.AddChild(transition);
+            importantUIList.Add(transition);
+        }
+     
 
         settings = Global.GetObj<Settings>("res://addons_custom/Settings/Settings.tscn");
         settings.Visible = false;
@@ -109,7 +122,7 @@ public partial class Main : Singleton<Main>
             Game.instance.QueueFree();
         }
         lanDiscoveryService?.StopAll();
-        waitingPanel.Hide();
+        waitingPanel?.Hide();
         LoadMenu();
     }
     public void ClearAllUnimportantUI()
@@ -153,7 +166,7 @@ public partial class Main : Singleton<Main>
     {
         currentLobbyDisplayType = displayType;
         lanDiscoveryService?.StopAll();
-        waitingPanel.Hide();
+        waitingPanel?.Hide();
         StopObservingTransport();
         NetManager.Instance.Start();
         if (displayType == ENetLobbyDisplayType.Steam)
@@ -174,7 +187,7 @@ public partial class Main : Singleton<Main>
     }
     public void ShowWaitingPanel()
     {
-        waitingPanel.Show();
+        waitingPanel?.Show();
     }
 
     private Tween tween;
