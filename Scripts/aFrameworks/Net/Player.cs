@@ -4,6 +4,11 @@ using Godot;
 
 public partial class Player : Node, INetObject
 {
+    public Player()
+    {
+        playerId.OnValueChanged += OnStatusChanged;
+        playerName.OnValueChanged += OnStatusChanged;
+    }
     [Export]
     public ObjectInfo Info { get; set; }
 

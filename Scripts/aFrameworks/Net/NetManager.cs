@@ -415,6 +415,13 @@ public partial class NetManager : Singleton<NetManager>
     private void ReadSpawnObj(ReadOnlySpan<byte> content)
     {
         uint id = BinaryPrimitives.ReadUInt32LittleEndian(content.Slice(0, 4));
+
+        if (idToObject.ContainsKey(id) || lazyIdToObject.ContainsKey(id))
+        {
+            GD.PrintErr($"ReadSpawnObj: id {id} 已存在，忽略重复 SpawnObj");
+            return;
+        }
+
         int nameLen = BinaryPrimitives.ReadInt32LittleEndian(content.Slice(4, 4));
         string objName = Utf8.GetString(content.Slice(8, nameLen));
 
@@ -806,10 +813,12 @@ public partial class NetManager : Singleton<NetManager>
     private void ReadPing(ReadOnlySpan<byte> content)
     {
         if (!transportManager.Current.AmIHost()) return;
+
         byte[] pong = new byte[1 + content.Length];
         pong[0] = (byte)NetMsgType.Pong;
         content.CopyTo(pong.AsSpan(1));
-        SendPackedMessage(pong, SendType.AllOthers);
+
+        SendPackedMessage(pong, SendType.JustSender);
     }
 
     private void ReadPong(ReadOnlySpan<byte> content)

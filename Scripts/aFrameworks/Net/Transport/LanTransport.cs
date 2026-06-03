@@ -408,61 +408,71 @@ public partial class LanTransport : INetTransport
     {
         try
         {
-            while (running && conn.Tcp.Connected)
+            while (running && conn.Tcp != null && conn.Tcp.Connected)
             {
-                // 读数据
-                if (!ReadFrame(conn.Stream, out var type, out var sender, out var payload))
+                bool hasData = false;
+                try
+                {
+                    hasData = conn.Stream.DataAvailable || conn.Tcp.Client.Poll(1000, SelectMode.SelectRead);
+                }
+                catch
+                {
                     break;
-
-                conn.LastRecvTime = DateTime.UtcNow;
-
-                if (type == PacketType.Normal)
-                {
-                    // 接收到的数据放入队列
-                    // 强制使用连接绑定的 PeerId 作为 senderId，防止客户端伪造 ID
-                    recvQueue.Enqueue((conn.PeerId, payload));
-                }
-                else if (type == PacketType.Heartbeat)
-                {
-                    // 心跳包，只更新时间
                 }
 
-                // 发送心跳包
-                if ((DateTime.UtcNow - conn.LastHeartbeatSendTime).TotalMilliseconds > HEARTBEAT_INTERVAL_MS)
+                if (hasData)
+                {
+                    if (!ReadFrame(conn.Stream, out var type, out var sender, out var payload))
+                        break;
+
+                    conn.LastRecvTime = DateTime.UtcNow;
+
+                    if (type == PacketType.Normal)
+                    {
+                        recvQueue.Enqueue((conn.PeerId, payload));
+                    }
+                }
+
+                var now = DateTime.UtcNow;
+
+                if ((now - conn.LastHeartbeatSendTime).TotalMilliseconds > HEARTBEAT_INTERVAL_MS)
                 {
                     lock (conn.WriteLock)
                     {
                         SendFrame(conn.Stream, PacketType.Heartbeat, LocalID, Array.Empty<byte>());
                     }
-                    conn.LastHeartbeatSendTime = DateTime.UtcNow;
+                    conn.LastHeartbeatSendTime = now;
                 }
 
-                if ((DateTime.UtcNow - conn.LastRecvTime).TotalMilliseconds > HEARTBEAT_TIMEOUT_MS)
+                if ((now - conn.LastRecvTime).TotalMilliseconds > HEARTBEAT_TIMEOUT_MS)
                 {
                     GD.Print($"Client {conn.PeerId} timed out.");
                     break;
                 }
+
+                Thread.Sleep(1);
             }
         }
         catch (Exception e)
         {
-            if (running) GD.PrintErr($"Client Loop Error {conn.PeerId}: " + e.Message);
+            if (running) GD.PrintErr($"Client Loop Error {conn.PeerId}: {e.Message}");
         }
         finally
         {
-            conn.Tcp.Close();
+            try { conn.Tcp?.Close(); } catch { }
             lock (hostConnLock)
                 hostConnections.Remove(conn.PeerId);
             disconnectedQueue.Enqueue(conn.PeerId);
         }
     }
-
     #endregion
 
     #region Client Thread
 
     private void ClientReceiveLoop()
     {
+        bool hostDisconnected = false;
+
         try
         {
             var stream = client.GetStream();
@@ -479,7 +489,6 @@ public partial class LanTransport : INetTransport
                 IsHost = true
             };
 
-            // 把自己也加进去方便 UI 显示
             players[LocalID] = new LanPlayerInfo
             {
                 PlayerId = LocalID,
@@ -493,12 +502,26 @@ public partial class LanTransport : INetTransport
             DateTime lastRecv = DateTime.UtcNow;
             DateTime lastHb = DateTime.UtcNow;
 
-            while (running && client.Connected)
+            while (running && client != null && client.Connected)
             {
-                if (stream.DataAvailable || client.Client.Poll(1000, SelectMode.SelectRead))
+                bool hasData = false;
+                try
+                {
+                    hasData = stream.DataAvailable || client.Client.Poll(1000, SelectMode.SelectRead);
+                }
+                catch
+                {
+                    if (running) hostDisconnected = true;
+                    break;
+                }
+
+                if (hasData)
                 {
                     if (!ReadFrame(stream, out var type, out var sender, out var payload))
+                    {
+                        if (running) hostDisconnected = true;
                         break;
+                    }
 
                     lastRecv = DateTime.UtcNow;
 
@@ -506,33 +529,45 @@ public partial class LanTransport : INetTransport
                         recvQueue.Enqueue((sender, payload));
                 }
 
-                if ((DateTime.UtcNow - lastHb).TotalMilliseconds > HEARTBEAT_INTERVAL_MS)
+                var now = DateTime.UtcNow;
+
+                if ((now - lastHb).TotalMilliseconds > HEARTBEAT_INTERVAL_MS)
                 {
                     lock (clientWriteLock)
                     {
                         SendFrame(stream, PacketType.Heartbeat, LocalID, Array.Empty<byte>());
                     }
-                    lastHb = DateTime.UtcNow;
+                    lastHb = now;
                 }
 
-                if ((DateTime.UtcNow - lastRecv).TotalMilliseconds > HEARTBEAT_TIMEOUT_MS)
+                if ((now - lastRecv).TotalMilliseconds > HEARTBEAT_TIMEOUT_MS)
                 {
                     GD.Print("Host timed out.");
+                    hostDisconnected = true;
                     break;
                 }
+
+                Thread.Sleep(1);
             }
         }
         catch (Exception e)
         {
-            if (running) GD.PrintErr("Client Loop Error: " + e.Message);
+            if (running)
+            {
+                hostDisconnected = true;
+                GD.PrintErr("Client Loop Error: " + e.Message);
+            }
         }
         finally
         {
-            disconnectedQueue.Enqueue(HostID);
+            if (hostDisconnected && running)
+            {
+                disconnectedQueue.Enqueue(HostID);
+            }
+
             running = false;
         }
     }
-
     #endregion
 
     #region Packet
