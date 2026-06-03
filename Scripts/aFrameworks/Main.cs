@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using Godot;
 
 public enum ENetLobbyDisplayType
@@ -17,9 +18,9 @@ public partial class Main : Singleton<Main>
     public LanDiscoveryService lanDiscoveryService;
     List<Node> importantUIList = new List<Node>();
     INetTransport observedTransport;
-    GameContext pendingCreateContext;
+    GameOnlineContext pendingCreateContext;
     ENetLobbyDisplayType currentLobbyDisplayType;
-    public event Action<GameContext, ENetLobbyDisplayType> OnlineRoomCreated;
+    public event Action<GameOnlineContext, ENetLobbyDisplayType> OnlineRoomCreated;
     public event Action<ENetLobbyDisplayType> OnlineRoomJoined;
 
     [Export]
@@ -31,12 +32,12 @@ public partial class Main : Singleton<Main>
             if (transport.AmIHost())
             {
                 // 主机：绿色
-                GD.PrintRich($"[color=lime][HOST ({TransportManager.Instance?.Current.LocalID})][/color] {content}");
+                GD.PrintRich($"[color=lime][HOST ({TransportManager.Instance?.Current.LocalID})]{content}[/color] ");
             }
             else
             {
                 // 客户端：青色
-                GD.PrintRich($"[color=cyan][CLIENT]({TransportManager.Instance?.Current.LocalID})[/color] {content}");
+                GD.PrintRich($"[color=cyan][CLIENT ({TransportManager.Instance?.Current.LocalID})]{content}[/color]");
             }
         else
         {
@@ -129,10 +130,10 @@ public partial class Main : Singleton<Main>
         panel.DisplayType = displayType;
         AddUI(panel);
     }
-    public void StartCreateLobby(GameContext context, ENetLobbyDisplayType displayType)
+    public void StartCreateLobby(GameOnlineContext context, ENetLobbyDisplayType displayType)
     {
         if (context == null)
-            context = new GameContext();
+            context = new GameOnlineContext();
 
         pendingCreateContext = context;
         EnsureNetworkServices(displayType);
@@ -165,7 +166,7 @@ public partial class Main : Singleton<Main>
             TransportManager.Instance.UseLan();
         ObserveCurrentTransport();
     }
-    public void CreateOnlineGame(GameContext context)
+    public void CreateOnlineGame(GameOnlineContext context)
     {
         Game.PendingOnlineContext = context;
         // 这里预留给外部更完整的游戏实例创建与初始化逻辑。

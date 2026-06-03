@@ -1,6 +1,6 @@
-[gd_scene load_steps=2 format=3 uid="uid://dt6vonx1naovu"]
+[gd_scene format=3 uid="uid://dt6vonx1naovu"]
 
-[ext_resource type="Script" uid="uid://ckjkxfq751uur" path="res://AATest/Test.cs" id="1_xs2kq"]
+[ext_resource type="Script" uid="uid://ckjkxfq751uur" path="res://AATest/NetTrans/TestNetTrans.cs" id="1_xs2kq"]
 
 [node name="Test" type="Control"]
 layout_mode = 3

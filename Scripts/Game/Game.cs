@@ -5,7 +5,7 @@ using Godot;
 public partial class Game : Node,INetObject
 {
     public static Game instance;
-    public static GameContext PendingOnlineContext { get; set; }
+    public static GameOnlineContext PendingOnlineContext { get; set; }
     private readonly Dictionary<ulong, Player> _playersById = new();
     private readonly List<Player> _localPlayers = new();
     private readonly HashSet<ulong> _pendingPlayerDestroyIds = new();
@@ -39,6 +39,15 @@ public partial class Game : Node,INetObject
     }
     public static void TryFreeGameAndReturn(string showBoxContent)
     {
+        var game = instance;
+        if (game != null)
+        {
+            if (game.IsOnline)
+            {
+                var trans = TransportManager.Instance.Current;
+                trans?.LeaveRoom();
+            }
+        }
         Main.Instance.ResetAndReturnToMenu();
         // 加入一个消息显示
     }
@@ -46,28 +55,25 @@ public partial class Game : Node,INetObject
     {
         TryFreeGameAndReturn("Host Quit");
     }
-    bool _localCoopEnabled;
+    bool _localCoopEnabled = false;
     int _localPlayerCount = 1;
+    // 这个仅在单机的时候有效
 
     public bool IsLocalCoop => _localCoopEnabled;
     public int LocalPlayerCount => _localPlayerCount;
-    public bool IsInBasement => IsGameEnableEnter();
 
-    public void SetupFromContext(GameContext context)
+    public void OnlineSetupFromContext(GameOnlineContext context)
     {
-        context ??= new GameContext();
+        context ??= new GameOnlineContext();
         MidJoinable = context.MidJoinable;
         MaxPlayerCount = Mathf.Max(context.MaxPlayers, 1);
-        _localCoopEnabled = context.LocalCoopEnabled;
-        _localPlayerCount = Mathf.Max(context.LocalPlayerCount, 1);
-        InputManager.Instance?.SetLocalInputContext(_localCoopEnabled, _localPlayerCount);
         GameStateChanged?.Invoke();
     }
     public void HostInitialize()
     {
-        if (IsOnline && PendingOnlineContext != null)
+        if (IsOnline)
         {
-            SetupFromContext(PendingOnlineContext);
+            OnlineSetupFromContext(PendingOnlineContext);
             PendingOnlineContext = null;
         }
     }
@@ -92,6 +98,7 @@ public partial class Game : Node,INetObject
     readonly List<Player> players = new();
     public List<Player> Players => players;
     public List<Player> LocalPlayers => _localPlayers;
+    // 仅离线状态可能会有多个本地玩家
     public event Action PlayersChanged;
     public event Action LocalPlayerChanged;
     void UpdateLocalPlayer()
@@ -132,7 +139,7 @@ public partial class Game : Node,INetObject
         _playersById[pid] = player;
         players.Add(player);
         UpdateLocalPlayer();
-        GD.Print("增加新玩家，总数: " + players.Count);
+        Main.Print("增加新玩家，总数: " + players.Count);
         if (notice)
         {
             PlayersChanged?.Invoke();
@@ -161,7 +168,8 @@ public partial class Game : Node,INetObject
     }
     public bool IsGameEnableEnter()
     {
-        return MidJoinable && _playersById.Count < MaxPlayerCount;
+        return true;
+        return  _playersById.Count < MaxPlayerCount;
     }
     public void OnNetTransPlayerListChanged()
     {
@@ -175,7 +183,6 @@ public partial class Game : Node,INetObject
         var pList = transport.GetTempNetPlayerInfos() ?? new List<INetTransportPlayerInfo>();
         Main.Print($"\n检测到trans层player变动，同步更新game层player；" +
            $"\n更新前信息: \nplayers数:{_playersById.Count} transPInfo数:{pList.Count}");
-        Main.Print("");
         var localID = transport.LocalID;
         var netPlayerDict = pList
             .Where(p => p != null)
@@ -195,14 +202,14 @@ public partial class Game : Node,INetObject
             AuthorizedNetDestroy(player, true);
         }
         int availableSlots = Mathf.Max(MaxPlayerCount - _playersById.Count - _pendingPlayerDestroyIds.Count, 0);
-        if (MidJoinable && availableSlots > 0)
+        if (IsGameEnableEnter() && availableSlots > 0)
         {
             foreach (var pInfo in playerToAdd.Take(availableSlots))
             {
                 if (_playersById.ContainsKey(pInfo.id) || _pendingPlayerDestroyIds.Contains(pInfo.id))
                     continue;
 
-                var player = ObjectPoolManager.GetPossibleObject<Player>("player");
+                var player = ObjectPoolManager.GetPossibleObject<Player>("Player");
                 if (player == null)
                 {
                     GD.PrintErr($"无法创建Player对象: {pInfo.id}");
@@ -213,9 +220,7 @@ public partial class Game : Node,INetObject
                 player.PlayerName = string.IsNullOrWhiteSpace(pInfo.name)
                     ? $"Player_{pInfo.id}"
                     : pInfo.name;
-                player.IsLocal = false;
                 player.LocalSlotIndex = -1;
-                player.IsReady = false;
                 AuthorizedNetSpawn(player, true);
 
                 if (pInfo.id != localID)
@@ -225,6 +230,7 @@ public partial class Game : Node,INetObject
         else
         {
             // 游戏不允许进入，直接踢出
+            GD.Print("游戏不允许进入，直接踢出玩家");
             foreach (var pInfo in playerToAdd)
             {
                 NetManager.Instance.SendEventToPlayer(pInfo.id, "Kick");
@@ -244,7 +250,7 @@ public partial class Game : Node,INetObject
 
     #region State
     bool isAuthorized = true;
-    readonly NetVar midJoinable = new();
+    readonly NetVar midJoinable = new(true);
     public bool IsAuthorized => isAuthorized;
     public bool MidJoinable
     {
@@ -316,6 +322,7 @@ public partial class Game : Node,INetObject
     public override void _EnterTree()
     {
         instance = this;
+        Main.Print("Game Entered Tree");
         UpdateState();
         InputManager.Instance?.SetLocalInputContext(_localCoopEnabled, _localPlayerCount);
 
@@ -379,7 +386,7 @@ public partial class Game : Node,INetObject
 
     public bool HasAuthority()
     {
-        return !IsOnline || TransportManager.Instance?.Current?.AmIHost() == true;
+        return isAuthorized;
     }
 
     public List<NetVar> GetInputStateVars()
@@ -412,8 +419,10 @@ public partial class Game : Node,INetObject
     }
     public void INetSpawn()
     {
+        TestNetTrans.instance.AddChild(this);
+        return;
         Main.Instance.AddGame(this);
-        Main.Instance.waitingPanel.Hide();
+        Main.Instance.waitingPanel?.Hide();
         //Main.Instance.AddChild(this);
     }
     public void INetDestroy()
@@ -447,7 +456,7 @@ public partial class Game : Node,INetObject
         int playerCount = IsLocalCoop ? _localPlayerCount : 1;
         for (int i = 0; i < playerCount; i++)
         {
-            var player = ObjectPoolManager.GetPossibleObject<Player>("player");
+            var player = ObjectPoolManager.GetPossibleObject<Player>("Player");
             if (player == null)
             {
                 GD.PrintErr($"无法创建离线本地Player对象: slot {i}");
@@ -456,9 +465,7 @@ public partial class Game : Node,INetObject
 
             player.PlayerId = (ulong)i;
             player.PlayerName = $"LocalPlayer{i + 1}";
-            player.IsLocal = true;
             player.LocalSlotIndex = i;
-            player.IsReady = true;
             yield return player;
         }
     }

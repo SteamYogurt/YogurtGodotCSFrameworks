@@ -9,10 +9,8 @@ public partial class Player : Node, INetObject
 
     public readonly NetVar playerId = new((ulong)0);
     public readonly NetVar playerName = new(string.Empty);
-    public readonly NetVar isLocal = new(false);
-    public readonly NetVar isReady = new(false);
-    private int _localSlotIndex = -1;
 
+    private int _localSlotIndex = -1;
     private List<NetVar> _fullStateVars;
     private readonly List<NetVar> _inputStateVars = new();
     private NetRPCTable _netRPCTable;
@@ -31,37 +29,50 @@ public partial class Player : Node, INetObject
 
     public int LocalSlotIndex
     {
-        get => _localSlotIndex;
+        get
+        {
+            if(_localSlotIndex < 0)
+            {
+                return 0;
+            }
+            return _localSlotIndex;
+        }
         set => _localSlotIndex = value;
     }
 
-    public bool IsLocal
-    {
-        get => (bool)isLocal.Value;
-        set => isLocal.Value = value;
-    }
-
-    public bool IsReady
-    {
-        get => (bool)isReady.Value;
-        set => isReady.Value = value;
-    }
-
+    public bool IsLocal => hasAuthority;
     public void HostInitialize()
     {
-        IsReady = false;
+
+    }
+    void OnStatusChanged()
+    {
+        UpdateAuthority();
+        Game.instance?.CallOnPlayerStatusChanged(this);
     }
 
-    public bool HasAuthority()
+    bool hasAuthority = false;
+    public void UpdateAuthority()
     {
         if (Game.instance == null)
-            return false;
+        {
+            hasAuthority = false;
+            GD.PrintErr("Game instance is null. Cannot determine authority.");
+            return;
+        }
 
         if (!Game.instance.IsOnline)
-            return true;
+        {
+            hasAuthority = true;
+            return;
+        }
 
         var transport = TransportManager.Instance?.Current;
-        return transport != null && transport.LocalID == PlayerId;
+        hasAuthority = transport != null && transport.LocalID == PlayerId;
+    }
+    public bool HasAuthority()
+    {
+        return hasAuthority;
     }
 
     public List<NetVar> GetInputStateVars()
@@ -75,8 +86,6 @@ public partial class Player : Node, INetObject
         {
             playerId,
             playerName,
-            isLocal,
-            isReady
         };
 
         return _fullStateVars;
@@ -98,7 +107,8 @@ public partial class Player : Node, INetObject
             GetParent()?.RemoveChild(this);
             Game.instance.AddChild(this);
         }
-
+        UpdateAuthority();
+        Main.Print($"玩家生成, ID: {PlayerId}, 名称: {PlayerName}, authority: {hasAuthority}");
         Game.instance.AddPlayer(this);
     }
 

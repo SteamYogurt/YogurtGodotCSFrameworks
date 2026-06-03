@@ -1,0 +1,12 @@
+[gd_scene format=3 uid="uid://c4f4dc17vqgdg"]
+
+[ext_resource type="Script" uid="uid://i1soifuq4p5o" path="res://Scripts/Game/Game.cs" id="1_5ahkd"]
+[ext_resource type="Script" uid="uid://bftsp12huoof5" path="res://Scripts/aFrameworks/Object/ObjectInfo.cs" id="2_rvdbw"]
+
+[sub_resource type="Resource" id="Resource_dbqmf"]
+script = ExtResource("2_rvdbw")
+metadata/_custom_type_script = "uid://bftsp12huoof5"
+
+[node name="Game" type="Node" unique_id=439230810]
+script = ExtResource("1_5ahkd")
+Info = SubResource("Resource_dbqmf")

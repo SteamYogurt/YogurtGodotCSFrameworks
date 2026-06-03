@@ -1,14 +1,12 @@
 using Godot;
 using System;
 
-public class GameContext
+public class GameOnlineContext
 {
-    public string RoomName { get; set; }
-    public int MaxPlayers { get; set; }
-    public EGameLobbyType Visibility { get; set; }
-    public bool MidJoinable { get; set; }
-    public bool LocalCoopEnabled { get; set; }
-    public int LocalPlayerCount { get; set; } = 1;
+    public string RoomName { get; set; } = "Default Name";
+    public int MaxPlayers { get; set; } = 8;
+    public EGameLobbyType Visibility { get; set; } = EGameLobbyType.Public;
+    public bool MidJoinable { get; set; } = true;
 }
 public enum EGameLobbyType
 {

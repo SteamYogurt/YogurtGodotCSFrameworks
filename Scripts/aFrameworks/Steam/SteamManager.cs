@@ -124,7 +124,7 @@ public partial class SteamManager : Singleton<SteamManager>
 
         LobbyListUpdated?.Invoke(rooms);
     }
-    public void ApplyCurrentLobbyMetadata(GameContext context)
+    public void ApplyCurrentLobbyMetadata(GameOnlineContext context)
     {
         if (!inited || context == null)
             return;

@@ -57,7 +57,7 @@
 
 ## Steam 相关补充
 - `SteamManager` 新增大厅列表读取能力。
-- `SteamManager.ApplyCurrentLobbyMetadata(GameContext)` 会在创建者进入 Lobby 后写入：
+- `SteamManager.ApplyCurrentLobbyMetadata(GameOnlineContext)` 会在创建者进入 Lobby 后写入：
   - 房间名
   - 可加入状态
   - 最大人数

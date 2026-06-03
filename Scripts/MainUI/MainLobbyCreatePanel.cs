@@ -70,14 +70,12 @@ public partial class MainLobbyCreatePanel : Control
 
     void OnCreatePressed()
     {
-        var context = new GameContext
+        var context = new GameOnlineContext
         {
             RoomName = roomNameEdit?.Text?.Trim(),
             MaxPlayers = Math.Max((int)(maxPlayersSpin?.Value ?? 4), 1),
             MidJoinable = midJoinableCheck?.ButtonPressed ?? true,
             Visibility = GetVisibility(),
-            LocalCoopEnabled = false,
-            LocalPlayerCount = 1
         };
         Main.Instance.StartCreateLobby(context, DisplayType);
     }
