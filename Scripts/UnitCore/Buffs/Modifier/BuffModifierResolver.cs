@@ -19,8 +19,11 @@ public static class BuffModifierResolver
             MaxStacks = Mathf.Max(1, buffInfo.maxStacks),
         };
 
-        List<BuffModifier> modifiers = CollectModifiers(context);
-        ApplyModifiers(context, modifiers, BuffModifierStage.Apply);
+        using (BuffModifierCollectSession collectSession = BuffModifierCollectSession.Begin())
+        {
+            CollectModifiers(context, collectSession);
+            ApplyModifiers(context, collectSession, BuffModifierStage.Apply);
+        }
 
         instance.ResolvedDuration = context.Duration;
         instance.ResolvedTickInterval = context.TickInterval;
@@ -40,8 +43,12 @@ public static class BuffModifierResolver
             EffectValue = baseValue,
         };
 
-        List<BuffModifier> modifiers = CollectModifiers(context);
-        ApplyModifiers(context, modifiers, BuffModifierStage.EffectValue);
+        using (BuffModifierCollectSession collectSession = BuffModifierCollectSession.Begin())
+        {
+            CollectModifiers(context, collectSession);
+            ApplyModifiers(context, collectSession, BuffModifierStage.EffectValue);
+        }
+
         return context.EffectValue;
     }
 
@@ -59,84 +66,40 @@ public static class BuffModifierResolver
             IsHealingTick = isHealingTick,
         };
 
-        List<BuffModifier> modifiers = CollectModifiers(context);
-        ApplyModifiers(context, modifiers, BuffModifierStage.TickValue);
+        using (BuffModifierCollectSession collectSession = BuffModifierCollectSession.Begin())
+        {
+            CollectModifiers(context, collectSession);
+            ApplyModifiers(context, collectSession, BuffModifierStage.TickValue);
+        }
+
         return context.TickValue;
     }
 
-    static List<BuffModifier> CollectModifiers(BuffModifierContext context)
+    static void CollectModifiers(BuffModifierContext context, BuffModifierCollectSession session)
     {
-        List<BuffModifier> result = new();
-        HashSet<object> addedOwners = new();
-
-        AddOwnerModifiers(result, addedOwners, UnitCoreModifiers.GlobalOwner);
-        AddOwnerModifiers(result, addedOwners, context.Owner);
-        AddOwnerModifiers(result, addedOwners, context.Caster);
-        AddOwnerModifiers(result, addedOwners, context.BuffInstance);
-
-        AddBuffModifiers(result, addedOwners, context.Owner?.BuffController);
-        AddBuffModifiers(result, addedOwners, context.Caster?.BuffController);
-
-        result.Sort((a, b) => a.Priority.CompareTo(b.Priority));
-        return result;
-    }
-
-    static void AddBuffModifiers(
-        List<BuffModifier> result,
-        HashSet<object> addedOwners,
-        BuffController buffController)
-    {
-        if (buffController == null)
-        {
-            return;
-        }
-
-        List<BuffInstance> activeBuffs = buffController.ActiveBuffs;
-        for (int i = 0; i < activeBuffs.Count; i++)
-        {
-            AddOwnerModifiers(result, addedOwners, activeBuffs[i]);
-        }
-    }
-
-    static void AddOwnerModifiers(
-        List<BuffModifier> result,
-        HashSet<object> addedOwners,
-        object owner)
-    {
-        if (owner == null || !addedOwners.Add(owner))
-        {
-            return;
-        }
-
-        if (!owner.TryGetBuffModifierController(out BuffModifierController controller)
-            || controller == null
-            || !controller.HasAny())
-        {
-            return;
-        }
-
-        IReadOnlyList<BuffModifier> modifiers = controller.Modifiers;
-        for (int i = 0; i < modifiers.Count; i++)
-        {
-            BuffModifier modifier = modifiers[i];
-            if (modifier != null)
-            {
-                result.Add(modifier);
-            }
-        }
+        session.AddOwnerModifiers(UnitCoreModifiers.GlobalOwner);
+        session.AddOwnerModifiers(context.Owner);
+        session.AddOwnerModifiers(context.Caster);
+        session.AddOwnerModifiers(context.BuffInstance);
+        session.AddBuffControllerModifiers(context.Owner?.BuffController);
+        session.AddBuffControllerModifiers(context.Caster?.BuffController);
     }
 
     static void ApplyModifiers(
         BuffModifierContext context,
-        List<BuffModifier> modifiers,
+        BuffModifierCollectSession session,
         BuffModifierStage stage)
     {
+        List<BuffModifier> modifiers = session.GetStageList(stage);
+        if (modifiers == null || modifiers.Count == 0)
+        {
+            return;
+        }
+
         for (int i = 0; i < modifiers.Count; i++)
         {
             BuffModifier modifier = modifiers[i];
-            if (modifier == null
-                || !modifier.IsMatchStage(stage)
-                || !modifier.IsMatch(context))
+            if (modifier == null || !modifier.IsMatch(context))
             {
                 continue;
             }

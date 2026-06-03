@@ -25,47 +25,50 @@ public static class DamageResolver
             }
         }
 
-        List<DamageModifier> modifiers = CollectModifiers(ctx);
+        using (DamageModifierCollectSession collectSession = DamageModifierCollectSession.Begin())
+        {
+            CollectModifiers(ctx, collectSession);
 
-        ctx.Stage = DamageResolveStage.Outgoing;
-        ApplyModifiers(ctx, modifiers, DamageResolveStage.Outgoing);
-        float outgoingMultiplier = Mathf.Max(0f, ctx.OutgoingDamageMultiplier);
-        float outgoingPhysicalDamage = Mathf.Max(0f, ctx.RawPhysicalDamage * outgoingMultiplier);
-        float outgoingMagicalDamage = Mathf.Max(0f, ctx.RawMagicalDamage * outgoingMultiplier);
-        float outgoingRealDamage = Mathf.Max(0f, ctx.RawRealDamage * outgoingMultiplier);
+            ctx.Stage = DamageResolveStage.Outgoing;
+            ApplyModifiers(ctx, collectSession, DamageResolveStage.Outgoing);
+            float outgoingMultiplier = Mathf.Max(0f, ctx.OutgoingDamageMultiplier);
+            float outgoingPhysicalDamage = Mathf.Max(0f, ctx.RawPhysicalDamage * outgoingMultiplier);
+            float outgoingMagicalDamage = Mathf.Max(0f, ctx.RawMagicalDamage * outgoingMultiplier);
+            float outgoingRealDamage = Mathf.Max(0f, ctx.RawRealDamage * outgoingMultiplier);
 
-        ctx.Stage = DamageResolveStage.Critical;
-        ApplyModifiers(ctx, modifiers, DamageResolveStage.Critical);
-        ResolveCritical(ctx);
-        float critMultiplier = ctx.IsCrit ? Mathf.Max(1f, ctx.CritMultiplier) : 1f;
+            ctx.Stage = DamageResolveStage.Critical;
+            ApplyModifiers(ctx, collectSession, DamageResolveStage.Critical);
+            ResolveCritical(ctx);
+            float critMultiplier = ctx.IsCrit ? Mathf.Max(1f, ctx.CritMultiplier) : 1f;
 
-        ctx.Stage = DamageResolveStage.Defense;
-        ApplyModifiers(ctx, modifiers, DamageResolveStage.Defense);
-        float effectivePhysDefense = ctx.Target.PhysicalDefense;
-        float effectiveMagDefense = ctx.Target.MagicalDefense;
+            ctx.Stage = DamageResolveStage.Defense;
+            ApplyModifiers(ctx, collectSession, DamageResolveStage.Defense);
+            float effectivePhysDefense = ctx.Target.PhysicalDefense;
+            float effectiveMagDefense = ctx.Target.MagicalDefense;
 
-        float physDefenseMultiplier = 1f
-            - (Mathf.Max(0f, effectivePhysDefense) / (25f + Mathf.Max(0f, effectivePhysDefense)));
-        float magDefenseMultiplier = 1f
-            - (Mathf.Max(0f, effectiveMagDefense) / (25f + Mathf.Max(0f, effectiveMagDefense)));
+            float physDefenseMultiplier = 1f
+                - (Mathf.Max(0f, effectivePhysDefense) / (25f + Mathf.Max(0f, effectivePhysDefense)));
+            float magDefenseMultiplier = 1f
+                - (Mathf.Max(0f, effectiveMagDefense) / (25f + Mathf.Max(0f, effectiveMagDefense)));
 
-        float physicalDamageAfterDefense = outgoingPhysicalDamage * physDefenseMultiplier * critMultiplier;
-        float magicalDamageAfterDefense = outgoingMagicalDamage * magDefenseMultiplier * critMultiplier;
-        float realDamageAfterDefense = outgoingRealDamage * critMultiplier;
+            float physicalDamageAfterDefense = outgoingPhysicalDamage * physDefenseMultiplier * critMultiplier;
+            float magicalDamageAfterDefense = outgoingMagicalDamage * magDefenseMultiplier * critMultiplier;
+            float realDamageAfterDefense = outgoingRealDamage * critMultiplier;
 
-        ctx.Stage = DamageResolveStage.Incoming;
-        ApplyModifiers(ctx, modifiers, DamageResolveStage.Incoming);
-        float incomingMultiplier = Mathf.Max(0f, ctx.IncomingDamageMultiplier);
-        physicalDamageAfterDefense *= incomingMultiplier;
-        magicalDamageAfterDefense *= incomingMultiplier;
-        realDamageAfterDefense *= incomingMultiplier;
+            ctx.Stage = DamageResolveStage.Incoming;
+            ApplyModifiers(ctx, collectSession, DamageResolveStage.Incoming);
+            float incomingMultiplier = Mathf.Max(0f, ctx.IncomingDamageMultiplier);
+            physicalDamageAfterDefense *= incomingMultiplier;
+            magicalDamageAfterDefense *= incomingMultiplier;
+            realDamageAfterDefense *= incomingMultiplier;
 
-        ctx.Stage = DamageResolveStage.Final;
-        ApplyModifiers(ctx, modifiers, DamageResolveStage.Final);
-        float finalMultiplier = Mathf.Max(0f, ctx.FinalDamageMultiplier);
-        ctx.FinalPhysicalDamage = physicalDamageAfterDefense * finalMultiplier;
-        ctx.FinalMagicalDamage = magicalDamageAfterDefense * finalMultiplier;
-        ctx.FinalRealDamage = realDamageAfterDefense * finalMultiplier;
+            ctx.Stage = DamageResolveStage.Final;
+            ApplyModifiers(ctx, collectSession, DamageResolveStage.Final);
+            float finalMultiplier = Mathf.Max(0f, ctx.FinalDamageMultiplier);
+            ctx.FinalPhysicalDamage = physicalDamageAfterDefense * finalMultiplier;
+            ctx.FinalMagicalDamage = magicalDamageAfterDefense * finalMultiplier;
+            ctx.FinalRealDamage = realDamageAfterDefense * finalMultiplier;
+        }
 
         IUnitExt.ApplyDamageImpact(ctx);
 
@@ -116,79 +119,31 @@ public static class DamageResolver
         UnitCoreEvents.RaiseReceivedDamage(ctx);
     }
 
-    static List<DamageModifier> CollectModifiers(DamageContext ctx)
+    static void CollectModifiers(DamageContext ctx, DamageModifierCollectSession session)
     {
-        List<DamageModifier> result = new();
-        HashSet<object> addedOwners = new();
-
-        AddOwnerModifiers(result, addedOwners, UnitCoreModifiers.GlobalOwner);
-        AddOwnerModifiers(result, addedOwners, ctx.Attacker);
-        AddOwnerModifiers(result, addedOwners, ctx.Target);
-        AddOwnerModifiers(result, addedOwners, ctx.Source?.SourceObject);
-
-        AddBuffModifiers(result, addedOwners, ctx.Attacker?.BuffController);
-        AddBuffModifiers(result, addedOwners, ctx.Target?.BuffController);
-
-        result.Sort((a, b) => a.Priority.CompareTo(b.Priority));
-        return result;
-    }
-
-    static void AddBuffModifiers(
-        List<DamageModifier> result,
-        HashSet<object> addedOwners,
-        BuffController buffController)
-    {
-        if (buffController == null)
-        {
-            return;
-        }
-
-        List<BuffInstance> activeBuffs = buffController.ActiveBuffs;
-        for (int i = 0; i < activeBuffs.Count; i++)
-        {
-            AddOwnerModifiers(result, addedOwners, activeBuffs[i]);
-        }
-    }
-
-    static void AddOwnerModifiers(
-        List<DamageModifier> result,
-        HashSet<object> addedOwners,
-        object owner)
-    {
-        if (owner == null || !addedOwners.Add(owner))
-        {
-            return;
-        }
-
-        if (!owner.TryGetDamageModifierController(out DamageModifierController controller)
-            || controller == null
-            || !controller.HasAny())
-        {
-            return;
-        }
-
-        IReadOnlyList<DamageModifier> modifiers = controller.Modifiers;
-        for (int i = 0; i < modifiers.Count; i++)
-        {
-            DamageModifier modifier = modifiers[i];
-            if (modifier != null)
-            {
-                result.Add(modifier);
-            }
-        }
+        session.AddOwnerModifiers(UnitCoreModifiers.GlobalOwner);
+        session.AddOwnerModifiers(ctx.Attacker);
+        session.AddOwnerModifiers(ctx.Target);
+        session.AddOwnerModifiers(ctx.Source?.SourceObject);
+        session.AddBuffControllerModifiers(ctx.Attacker?.BuffController);
+        session.AddBuffControllerModifiers(ctx.Target?.BuffController);
     }
 
     static void ApplyModifiers(
         DamageContext ctx,
-        List<DamageModifier> modifiers,
+        DamageModifierCollectSession session,
         DamageResolveStage stage)
     {
+        List<DamageModifier> modifiers = session.GetStageList(stage);
+        if (modifiers == null || modifiers.Count == 0)
+        {
+            return;
+        }
+
         for (int i = 0; i < modifiers.Count; i++)
         {
             DamageModifier modifier = modifiers[i];
-            if (modifier == null
-                || !modifier.IsMatchStage(stage)
-                || !modifier.IsMatch(ctx))
+            if (modifier == null || !modifier.IsMatch(ctx))
             {
                 continue;
             }

@@ -1,11 +1,12 @@
 using System.Collections.Generic;
-using System.Linq;
 using Godot;
 
 public class BuffController
 {
     private IUnit _owner;
-    private List<BuffInstance> _activeBuffs = new();
+    private readonly List<BuffInstance> _activeBuffs = new();
+    private readonly Dictionary<StringName, BuffInstance> _buffsById = new();
+
     public List<BuffInstance> ActiveBuffs => _activeBuffs;
 
     public BuffController(IUnit owner)
@@ -18,7 +19,7 @@ public class BuffController
     {
         for (int i = _activeBuffs.Count - 1; i >= 0; i--)
         {
-            var buff = _activeBuffs[i];
+            BuffInstance buff = _activeBuffs[i];
             buff.Data.OnTick(buff, delta);
 
             if (buff.GetResolvedDuration() > 0f)
@@ -55,13 +56,13 @@ public class BuffController
             GD.PrintErr("施加buff时 buff缺少id");
             return;
         }
+
         if (!_owner.CanReceiveBuff(buffData))
         {
             return;
         }
 
-        var existingBuff = _activeBuffs.FirstOrDefault(b => b.Data.BuffID == buffData.BuffID);
-
+        BuffInstance existingBuff = FindBuffById(buffData.BuffID);
         if (existingBuff != null)
         {
             existingBuff.UpdateCaster(caster);
@@ -70,8 +71,9 @@ public class BuffController
         }
         else
         {
-            var newBuff = new BuffInstance(buffData, _owner, caster, stacks);
+            BuffInstance newBuff = new BuffInstance(buffData, _owner, caster, stacks);
             _activeBuffs.Add(newBuff);
+            RegisterBuffInstance(newBuff);
             newBuff.Data.OnEnter(newBuff);
         }
 
@@ -80,8 +82,14 @@ public class BuffController
 
     public void RemoveBuff(BuffInstance buff)
     {
+        if (buff == null)
+        {
+            return;
+        }
+
         buff.Data.OnExit(buff);
         buff.CleanupAll();
+        UnregisterBuffInstance(buff);
         _activeBuffs.Remove(buff);
 
         UpdateVisuals();
@@ -89,7 +97,7 @@ public class BuffController
 
     public void RemoveBuffByID(StringName buffId)
     {
-        var target = _activeBuffs.FirstOrDefault(b => b.Data.BuffID == buffId);
+        BuffInstance target = FindBuffById(buffId);
         if (target != null)
         {
             RemoveBuff(target);
@@ -103,7 +111,7 @@ public class BuffController
             return false;
         }
 
-        return _activeBuffs.Any(b => b.Data.BuffID == buffId);
+        return _buffsById.ContainsKey(buffId);
     }
 
     public bool HasBuff(string buffId)
@@ -113,7 +121,16 @@ public class BuffController
             return false;
         }
 
-        return _activeBuffs.Any(b => b.Data.BuffID.ToString() == buffId);
+        for (int i = 0; i < _activeBuffs.Count; i++)
+        {
+            BuffInstance buff = _activeBuffs[i];
+            if (buff?.Data != null && buff.Data.BuffID.ToString() == buffId)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public bool HasBuffTag(BuffTag tag)
@@ -123,7 +140,16 @@ public class BuffController
             return false;
         }
 
-        return _activeBuffs.Any(b => b.Data?.buffInfo != null && b.Data.buffInfo.tag == tag);
+        for (int i = 0; i < _activeBuffs.Count; i++)
+        {
+            BuffInstance buff = _activeBuffs[i];
+            if (buff?.Data?.buffInfo != null && buff.Data.buffInfo.tag == tag)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public int CountBuffTag(BuffTag tag)
@@ -133,7 +159,17 @@ public class BuffController
             return 0;
         }
 
-        return _activeBuffs.Count(b => b.Data?.buffInfo != null && b.Data.buffInfo.tag == tag);
+        int count = 0;
+        for (int i = 0; i < _activeBuffs.Count; i++)
+        {
+            BuffInstance buff = _activeBuffs[i];
+            if (buff?.Data?.buffInfo != null && buff.Data.buffInfo.tag == tag)
+            {
+                count++;
+            }
+        }
+
+        return count;
     }
 
     public void RefreshAllBuffModifierValues()
@@ -155,10 +191,24 @@ public class BuffController
 
     public void UpdateVisuals()
     {
-        var topBuff = _activeBuffs
-            .Where(b => b.Data.buffInfo.changeColor)
-            .OrderByDescending(b => b.Data.buffInfo.visualPriority)
-            .FirstOrDefault();
+        BuffInstance topBuff = null;
+        int topPriority = int.MinValue;
+
+        for (int i = 0; i < _activeBuffs.Count; i++)
+        {
+            BuffInstance buff = _activeBuffs[i];
+            if (buff?.Data?.buffInfo == null || !buff.Data.buffInfo.changeColor)
+            {
+                continue;
+            }
+
+            int priority = buff.Data.buffInfo.visualPriority;
+            if (topBuff == null || priority > topPriority)
+            {
+                topBuff = buff;
+                topPriority = priority;
+            }
+        }
 
         if (topBuff != null)
         {
@@ -170,16 +220,51 @@ public class BuffController
         }
     }
 
+    BuffInstance FindBuffById(StringName buffId)
+    {
+        if (buffId == null)
+        {
+            return null;
+        }
+
+        return _buffsById.TryGetValue(buffId, out BuffInstance buff) ? buff : null;
+    }
+
+    void RegisterBuffInstance(BuffInstance buff)
+    {
+        if (buff?.Data?.BuffID == null)
+        {
+            return;
+        }
+
+        _buffsById[buff.Data.BuffID] = buff;
+    }
+
+    void UnregisterBuffInstance(BuffInstance buff)
+    {
+        if (buff?.Data?.BuffID == null)
+        {
+            return;
+        }
+
+        if (_buffsById.TryGetValue(buff.Data.BuffID, out BuffInstance registered)
+            && ReferenceEquals(registered, buff))
+        {
+            _buffsById.Remove(buff.Data.BuffID);
+        }
+    }
+
     private void ApplyColor(Color col)
     {
-        var list = _owner.GetVisualMeshes();
+        List<MeshInstance3D> list = _owner.GetVisualMeshes();
         if (list == null)
         {
             return;
         }
 
-        foreach (var item in list)
+        for (int i = 0; i < list.Count; i++)
         {
+            MeshInstance3D item = list[i];
             if (GodotObject.IsInstanceValid(item))
             {
                 item.SetInstanceShaderParameter("alb_mul", col);

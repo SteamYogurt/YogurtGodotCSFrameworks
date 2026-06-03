@@ -13,8 +13,10 @@ public class DamageModifierController
             return;
         }
 
-        modifiers.Add(modifier);
-        modifiers.Sort((a, b) => a.Priority.CompareTo(b.Priority));
+        ModifierCollectionUtil.InsertSortedByPriority(
+            modifiers,
+            modifier,
+            static m => m.Priority);
     }
 
     public bool RemoveModifier(DamageModifier modifier)
