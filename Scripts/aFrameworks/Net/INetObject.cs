@@ -31,6 +31,13 @@ public interface INetObject : IGameObject
         NetManager.Instance.SendCustomPacket(this, packetId, args, sendType);
     }
 
+    public void SendNetCustomRawPacket(ushort packetId, ReadOnlySpan<byte> payload,
+        NetCustomPacketSendType sendType = NetCustomPacketSendType.ToAll)
+    {
+        if (NetManager.Instance == null) return;
+        NetManager.Instance.SendCustomRawPacket(this, packetId, payload, sendType);
+    }
+
     /// <summary>
     /// 收到初始包之后立即调用
     /// </summary>
@@ -52,5 +59,3 @@ public interface INetObject : IGameObject
         return false;
     }
 }
-
-

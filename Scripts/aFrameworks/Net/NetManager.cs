@@ -646,6 +646,12 @@ public partial class NetManager : Singleton<NetManager>
     }
     #endregion
     #region Custom Packet
+    private enum NetCustomPayloadMode : byte
+    {
+        VariantArray = 0,
+        RawBytes = 1
+    }
+
     public void SendCustomPacket(INetObject target, ushort packetId, Variant[] args, NetCustomPacketSendType sendType)
     {
         uint netId = GetID(target);
@@ -663,7 +669,7 @@ public partial class NetManager : Singleton<NetManager>
             }
         }
 
-        byte[] buffer = new byte[1 + 1 + 4 + 2 + 2 + argsSize];
+        byte[] buffer = new byte[1 + 1 + 4 + 2 + 1 + 2 + argsSize];
         int p = 0;
         buffer[p++] = (byte)NetMsgType.Customize;
         buffer[p++] = (byte)sendType;
@@ -671,6 +677,7 @@ public partial class NetManager : Singleton<NetManager>
         p += 4;
         BinaryPrimitives.WriteUInt16LittleEndian(buffer.AsSpan(p, 2), packetId);
         p += 2;
+        buffer[p++] = (byte)NetCustomPayloadMode.VariantArray;
         BinaryPrimitives.WriteUInt16LittleEndian(buffer.AsSpan(p, 2), (ushort)argDatas.Count);
         p += 2;
 
@@ -699,25 +706,80 @@ public partial class NetManager : Singleton<NetManager>
         }
     }
 
+    public void SendCustomRawPacket(INetObject target, ushort packetId, ReadOnlySpan<byte> payload, NetCustomPacketSendType sendType)
+    {
+        uint netId = GetID(target);
+        if (netId == 0) return;
+
+        byte[] buffer = new byte[1 + 1 + 4 + 2 + 1 + 4 + payload.Length];
+        int p = 0;
+        buffer[p++] = (byte)NetMsgType.Customize;
+        buffer[p++] = (byte)sendType;
+        BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(p, 4), netId);
+        p += 4;
+        BinaryPrimitives.WriteUInt16LittleEndian(buffer.AsSpan(p, 2), packetId);
+        p += 2;
+        buffer[p++] = (byte)NetCustomPayloadMode.RawBytes;
+        BinaryPrimitives.WriteInt32LittleEndian(buffer.AsSpan(p, 4), payload.Length);
+        p += 4;
+        payload.CopyTo(buffer.AsSpan(p));
+        p += payload.Length;
+
+        if (!transportManager.Current.AmIHost())
+        {
+            SendPackedMessage(buffer, SendType.Host);
+            return;
+        }
+
+        switch (sendType)
+        {
+            case NetCustomPacketSendType.ToAll:
+            case NetCustomPacketSendType.ToAllExceptSender:
+                SendPackedMessage(buffer, SendType.AllOthers);
+                break;
+            case NetCustomPacketSendType.ToHost:
+                break;
+        }
+    }
+
     private void ReadCustomize(ReadOnlySpan<byte> content)
     {
         NetCustomPacketSendType sendType = (NetCustomPacketSendType)content[0];
         uint netId = BinaryPrimitives.ReadUInt32LittleEndian(content.Slice(1, 4));
         ushort packetId = BinaryPrimitives.ReadUInt16LittleEndian(content.Slice(5, 2));
-        ushort argc = BinaryPrimitives.ReadUInt16LittleEndian(content.Slice(7, 2));
+        NetCustomPayloadMode mode = (NetCustomPayloadMode)content[7];
 
-        Variant[] args = new Variant[argc];
-        int pos = 9;
-        for (int i = 0; i < argc; i++)
+        var obj = GetNetObject(netId);
+        var table = obj?.GetNetCustomPacketTable();
+
+        int pos = 8;
+
+        if (mode == NetCustomPayloadMode.VariantArray)
+        {
+            ushort argc = BinaryPrimitives.ReadUInt16LittleEndian(content.Slice(pos, 2));
+            pos += 2;
+
+            Variant[] args = new Variant[argc];
+            for (int i = 0; i < argc; i++)
+            {
+                int len = BinaryPrimitives.ReadInt32LittleEndian(content.Slice(pos, 4));
+                pos += 4;
+                args[i] = GD.BytesToVar(content.Slice(pos, len).ToArray());
+                pos += len;
+            }
+
+            table?.Dispatch(packetId, args);
+        }
+        else if (mode == NetCustomPayloadMode.RawBytes)
         {
             int len = BinaryPrimitives.ReadInt32LittleEndian(content.Slice(pos, 4));
             pos += 4;
-            args[i] = GD.BytesToVar(content.Slice(pos, len).ToArray());
-            pos += len;
+            table?.DispatchRaw(packetId, content.Slice(pos, len));
         }
-
-        var obj = GetNetObject(netId);
-        obj?.GetNetCustomPacketTable()?.Dispatch(packetId, args);
+        else
+        {
+            GD.PrintErr($"ReadCustomize: 未知 payload mode: {(byte)mode}");
+        }
 
         if (!transportManager.Current.AmIHost()) return;
 
