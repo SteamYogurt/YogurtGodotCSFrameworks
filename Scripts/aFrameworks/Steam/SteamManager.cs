@@ -67,13 +67,7 @@ public partial class SteamManager : Singleton<SteamManager>
     #endregion
     void OnJoinRequested(GameLobbyJoinRequested_t e)
     {
-        Main.Instance.ClearAllUnimportantUI();
-        if(Game.instance != null)
-            Game.instance.QueueFree();
-        Main.Instance.ShowWaitingPanel();
-        NetManager.Instance.Start();
-        TransportManager.Instance.UseSteam();
-        SteamMatchmaking.JoinLobby(e.m_steamIDLobby);
+        Main.Instance.StartSteamInviteJoin(e.m_steamIDLobby.m_SteamID);
     }
     public void RequestLobbyList()
     {

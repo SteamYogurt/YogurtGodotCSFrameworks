@@ -56,6 +56,14 @@ public partial class Main
         TransportManager.Instance.Current?.JoinRoom(roomId);
     }
 
+    public void StartSteamInviteJoin(ulong roomId)
+    {
+        if (Game.instance != null)
+            Game.instance.QueueFree();
+
+        StartJoinLobby(roomId.ToString(), ENetLobbyDisplayType.Steam);
+    }
+
     public void EnsureNetworkServices(RoomFlowRequest request)
     {
         if (request == null)
