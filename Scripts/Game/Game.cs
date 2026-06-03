@@ -335,9 +335,9 @@ public partial class Game : Node,INetObject
   
     public override void _Ready()
     {
-        if (IsOnline && TransportManager.Instance?.Current != null)
+        if (IsOnline && TransportManager.Instance != null)
         {
-            TransportManager.Instance.Current.HostQuit += OnHostQuit;
+            TransportManager.Instance.HostQuit += OnHostQuit;
         }
     }
     public override void _EnterTree()
@@ -355,9 +355,9 @@ public partial class Game : Node,INetObject
             canvasLayer.AddChild(gameUI);
         }
        
-        if (IsOnline && TransportManager.Instance?.Current != null)
+        if (IsOnline && TransportManager.Instance != null)
         {
-            TransportManager.Instance.Current.NetPlayerListChanged
+            TransportManager.Instance.NetPlayerListChanged
                 += OnNetTransPlayerListChanged;
             OnNetTransPlayerListChanged();
             // 这里会生成本地的
@@ -374,11 +374,11 @@ public partial class Game : Node,INetObject
     public override void _ExitTree()
     {
         if (instance == this) instance = null;
-        if (IsOnline && TransportManager.Instance?.Current != null)
+        if (IsOnline && TransportManager.Instance != null)
         {
-            TransportManager.Instance.Current.NetPlayerListChanged
+            TransportManager.Instance.NetPlayerListChanged
                 -= OnNetTransPlayerListChanged;
-            TransportManager.Instance.Current.HostQuit -= OnHostQuit;
+            TransportManager.Instance.HostQuit -= OnHostQuit;
         }
         InputManager.Instance?.ClearLocalInputContext();
     }

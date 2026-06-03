@@ -21,6 +21,7 @@ public partial class SteamTransport : INetTransport
     const int P2P_CHANNEL = 0;
     public CSteamID currentLobby;
     CSteamID senderID;
+    bool hasRaisedRoomJoined;
 
     Callback<LobbyEnter_t> lobbyEnterCallback;
     Callback<LobbyDataUpdate_t> lobbyDataUpdateCallback;
@@ -29,6 +30,7 @@ public partial class SteamTransport : INetTransport
 
     public event Action NetPlayerListChanged;
     public event Action RoomJoined;
+    public event Action RoomJoinFailed;
     public event Action RoomStateChanged;
     public event Action HostQuit;
 
@@ -72,6 +74,7 @@ public partial class SteamTransport : INetTransport
     public void Init()
     {
         GD.Print("[SteamTransport] Init");
+        ResetState(false);
         if (!SteamManager.Instance.Inited)
         {
             GD.PrintErr("[SteamTransport] Init Failed");
@@ -83,7 +86,7 @@ public partial class SteamTransport : INetTransport
     public void Free()
     {
         GD.Print("[SteamTransport] Free");
-        if (InRoom) SteamMatchmaking.LeaveLobby(currentLobby);
+        ResetState(false);
         UnregisterCallbacks();
     }
 
@@ -98,16 +101,32 @@ public partial class SteamTransport : INetTransport
         if (ulong.TryParse(roomId, out ulong id))
         {
             SteamMatchmaking.JoinLobby(new CSteamID(id));
+            return;
         }
+
+        RoomJoinFailed?.Invoke();
     }
 
     public void LeaveRoom()
     {
         if (!InRoom) return;
-        SteamMatchmaking.LeaveLobby(currentLobby);
+        ResetState(true);
+    }
+
+    void ResetState(bool notifyRoomStateChanged)
+    {
+        if (InRoom)
+            SteamMatchmaking.LeaveLobby(currentLobby);
+
         InRoom = false;
+        hasRaisedRoomJoined = false;
+        currentLobby = default;
+        _cachedHostID = 0;
+        roomPlayersCount = 0;
+        _cachedMemberIDs.Clear();
         ClearP2P();
-        RoomStateChanged?.Invoke();
+        if (notifyRoomStateChanged)
+            RoomStateChanged?.Invoke();
     }
 
     public bool AmIHost() => HostID == LocalID;
@@ -204,13 +223,26 @@ public partial class SteamTransport : INetTransport
 
     void OnLobbyEnter(LobbyEnter_t e)
     {
-        if (e.m_EChatRoomEnterResponse != 1) return;
-        currentLobby = new CSteamID(e.m_ulSteamIDLobby);
+        if (e.m_EChatRoomEnterResponse != 1)
+        {
+            RoomJoinFailed?.Invoke();
+            return;
+        }
+        var enteredLobby = new CSteamID(e.m_ulSteamIDLobby);
+        bool sameLobbyReenter = InRoom && currentLobby == enteredLobby;
+
+        currentLobby = enteredLobby;
         InRoom = true;
         UpdateHostID();
         ClearP2P();
         RefreshMemberCache(); // 强制刷新缓存
-        RoomJoined?.Invoke();
+
+        if (!sameLobbyReenter && !hasRaisedRoomJoined)
+        {
+            hasRaisedRoomJoined = true;
+            RoomJoined?.Invoke();
+        }
+
         RoomStateChanged?.Invoke();
     }
 

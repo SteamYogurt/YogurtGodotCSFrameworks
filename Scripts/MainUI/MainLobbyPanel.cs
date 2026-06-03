@@ -42,7 +42,6 @@ public partial class MainLobbyPanel : Control
         VisibilityChanged += OnVisibilityChanged;
 
         ApplyDisplayType();
-        Main.Instance.EnsureNetworkServices(DisplayType);
         SubscribeRoomSources();
         RefreshRooms();
     }

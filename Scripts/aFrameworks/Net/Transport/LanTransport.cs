@@ -24,6 +24,7 @@ public partial class LanTransport : INetTransport
 
     public event Action NetPlayerListChanged;
     public event Action RoomJoined;
+    public event Action RoomJoinFailed;
     public event Action RoomStateChanged;
     public event Action HostQuit;
 
@@ -78,39 +79,63 @@ public partial class LanTransport : INetTransport
 
     #region INetTransport Implementation
 
-    public void Init() => LeaveRoom();
-    public void Free() => LeaveRoom();
+    public void Init() => ResetState(false);
+    public void Free() => ResetState(false);
+
+    void ResetState(bool notifyRoomStateChanged)
+    {
+        running = false;
+
+        try { listener?.Stop(); } catch { }
+        listener = null;
+
+        if (acceptThread != null && acceptThread.IsAlive)
+            acceptThread.Join(100);
+        acceptThread = null;
+
+        lock (hostConnLock)
+        {
+            foreach (var c in hostConnections.Values)
+            {
+                try { c.Tcp?.Close(); } catch { }
+            }
+            hostConnections.Clear();
+        }
+
+        try { client?.Close(); } catch { }
+        client = null;
+
+        players.Clear();
+        while (recvQueue.TryDequeue(out _)) { }
+        while (disconnectedQueue.TryDequeue(out _)) { }
+
+        LocalID = 0;
+        HostID = 0;
+        InRoom = false;
+        _currentProcessingSenderId = 0;
+
+        playerListDirty = true;
+        if (notifyRoomStateChanged)
+            RoomStateChanged?.Invoke();
+    }
 
     public void CreateRoom()
     {
-        LeaveRoom();
+        ResetState(false);
 
-        LocalID = 1;
-        HostID = 1;
-        InRoom = true;
-
-        players[1] = new LanPlayerInfo
-        {
-            PlayerId = 1,
-            Name = "Host",
-            IsHost = true
-        };
-
-
-        listener = new TcpListener(IPAddress.Any, PORT);
-        listener.Start();
-
-        running = true;
-        acceptThread = new Thread(AcceptLoop) { IsBackground = true };
-        acceptThread.Start();
-
-        playerListDirty = true;
-        RoomJoined?.Invoke();
-        RoomStateChanged?.Invoke();
-        GD.Print("Room Created. LocalID: " + LocalID);
-        return;
         try
         {
+            LocalID = 1;
+            HostID = 1;
+            InRoom = true;
+
+            players[1] = new LanPlayerInfo
+            {
+                PlayerId = 1,
+                Name = "Host",
+                IsHost = true
+            };
+
             listener = new TcpListener(IPAddress.Any, PORT);
             listener.Start();
 
@@ -119,12 +144,14 @@ public partial class LanTransport : INetTransport
             acceptThread.Start();
 
             playerListDirty = true;
+            RoomJoined?.Invoke();
             RoomStateChanged?.Invoke();
             GD.Print("Room Created. LocalID: " + LocalID);
         }
         catch (Exception e)
         {
             GD.PrintErr("Create Room Failed: " + e.Message);
+            RoomJoinFailed?.Invoke();
             LeaveRoom();
         }
     }
@@ -161,44 +188,14 @@ public partial class LanTransport : INetTransport
         catch (Exception e)
         {
             GD.PrintErr("Join Failed: " + e.Message);
+            RoomJoinFailed?.Invoke();
             LeaveRoom();
         }
     }
 
     public void LeaveRoom()
     {
-        running = false;
-
-        try { listener?.Stop(); } catch { }
-        listener = null;
-
-        if (acceptThread != null && acceptThread.IsAlive)
-            acceptThread.Join(100);
-        acceptThread = null;
-
-        lock (hostConnLock)
-        {
-            foreach (var c in hostConnections.Values)
-            {
-                try { c.Tcp?.Close(); } catch { }
-            }
-            hostConnections.Clear();
-        }
-
-        try { client?.Close(); } catch { }
-        client = null;
-
-        players.Clear();
-        while (recvQueue.TryDequeue(out _)) { }
-        while (disconnectedQueue.TryDequeue(out _)) { }
-
-        LocalID = 0;
-        HostID = 0;
-        InRoom = false;
-        _currentProcessingSenderId = 0;
-
-        playerListDirty = true;
-        RoomStateChanged?.Invoke();
+        ResetState(true);
     }
 
     public bool AmIHost() => LocalID == HostID;
