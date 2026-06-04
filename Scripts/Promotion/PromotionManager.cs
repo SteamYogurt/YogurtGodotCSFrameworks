@@ -14,9 +14,7 @@ public static class PromotionManager
             return;
         }
 
-        initialized = true;
-        UnitCoreModifiers.GlobalOwner ??= PromotionServices.GlobalModifierOwner;
-        PromotionUnitCoreBridge.Register();
+        MarkReady();
     }
 
     public static PromotionInstance Fetch(Promotion promotion)
@@ -59,5 +57,12 @@ public static class PromotionManager
         activeInstances.Clear();
         PromotionEventBus.ClearAll();
         initialized = false;
+    }
+
+    internal static void MarkReady()
+    {
+        initialized = true;
+        UnitCoreModifiers.GlobalOwner = PromotionServices.GlobalModifierOwner;
+        PromotionUnitCoreBridge.Register();
     }
 }

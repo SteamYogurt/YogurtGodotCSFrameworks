@@ -119,4 +119,13 @@ internal sealed class DamageModifierCollectSession : IDisposable
             depth--;
         }
     }
+
+    internal static void ResetScratch()
+    {
+        depth = 0;
+        for (int i = 0; i < SessionStack.Count; i++)
+        {
+            SessionStack[i].Clear();
+        }
+    }
 }

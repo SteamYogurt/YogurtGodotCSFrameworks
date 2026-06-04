@@ -12,11 +12,37 @@ public static class PromotionUnitCoreBridge
         }
 
         registered = true;
-        UnitCoreEvents.DealingDamage += ctx => RaiseDamage(PromotionEventType.DealingDamage, ctx);
-        UnitCoreEvents.DealtDamage += ctx => RaiseDamage(PromotionEventType.DealtDamage, ctx);
-        UnitCoreEvents.ReceivingDamage += ctx => RaiseDamage(PromotionEventType.ReceivingDamage, ctx);
-        UnitCoreEvents.ReceivedDamage += ctx => RaiseDamage(PromotionEventType.ReceivedDamage, ctx);
+        UnitCoreEvents.DealingDamage += OnDealingDamage;
+        UnitCoreEvents.DealtDamage += OnDealtDamage;
+        UnitCoreEvents.ReceivingDamage += OnReceivingDamage;
+        UnitCoreEvents.ReceivedDamage += OnReceivedDamage;
     }
+
+    public static void Unregister()
+    {
+        if (!registered)
+        {
+            return;
+        }
+
+        registered = false;
+        UnitCoreEvents.DealingDamage -= OnDealingDamage;
+        UnitCoreEvents.DealtDamage -= OnDealtDamage;
+        UnitCoreEvents.ReceivingDamage -= OnReceivingDamage;
+        UnitCoreEvents.ReceivedDamage -= OnReceivedDamage;
+    }
+
+    static void OnDealingDamage(DamageContext ctx) =>
+        RaiseDamage(PromotionEventType.DealingDamage, ctx);
+
+    static void OnDealtDamage(DamageContext ctx) =>
+        RaiseDamage(PromotionEventType.DealtDamage, ctx);
+
+    static void OnReceivingDamage(DamageContext ctx) =>
+        RaiseDamage(PromotionEventType.ReceivingDamage, ctx);
+
+    static void OnReceivedDamage(DamageContext ctx) =>
+        RaiseDamage(PromotionEventType.ReceivedDamage, ctx);
 
     static void RaiseDamage(PromotionEventType eventType, DamageContext damageContext)
     {
