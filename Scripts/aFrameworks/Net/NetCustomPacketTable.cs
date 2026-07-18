@@ -2,13 +2,6 @@ using System;
 using System.Collections.Generic;
 using Godot;
 
-public enum NetCustomPacketSendType : byte
-{
-    ToAll,
-    ToHost,
-    ToAllExceptSender
-}
-
 public delegate void NetCustomPacketRawHandler(ReadOnlySpan<byte> payload);
 
 public class NetCustomPacketTable

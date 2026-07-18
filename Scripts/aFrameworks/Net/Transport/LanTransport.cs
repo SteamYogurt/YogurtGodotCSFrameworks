@@ -200,67 +200,7 @@ public partial class LanTransport : INetTransport
 
     public bool AmIHost() => LocalID == HostID;
 
-    /// <summary>
-    /// 发送数据。
-    /// 根据 SendType 自动处理目标。
-    /// SenderID 始终为 LocalID (直接发送者)。
-    /// </summary>
-    public void Send(byte[] data, SendType type)
-    {
-        Send(data.AsSpan(), type);
-    }
-
-    public void Send(ReadOnlySpan<byte> data, SendType type)
-    {
-        if (!InRoom) return;
-
-        if (isHost)
-        {
-            lock (hostConnLock)
-            {
-                foreach (var kv in hostConnections)
-                {
-                    ulong targetId = kv.Key;
-
-                    // 过滤器逻辑：
-                    if (type == SendType.Host) continue; // Host 不需要通过网络发给自己
-
-                    // AllOthers: 发给所有人（除了自己，因为自己是Host，不在 hostConnections 里，所以不需要额外判断）
-
-                    // OthersExceptSender: 发给除了"当前处理消息的来源"以外的人
-                    // 这里的 _currentProcessingSenderId 是在 Poll() 中设置的
-                    if (type == SendType.OthersExceptSender && targetId == _currentProcessingSenderId) continue;
-
-                    // JustSender: 只发给"当前处理消息的来源"
-                    if (type == SendType.JustSender && targetId != _currentProcessingSenderId) continue;
-
-                    var conn = kv.Value;
-                    lock (conn.WriteLock)
-                    {
-                        // 始终使用 LocalID 作为包头的 Sender，符合"只记录直接发包的人"的要求
-                        SendFrame(conn.Stream, PacketType.Normal, LocalID, data);
-                    }
-                }
-            }
-        }
-        else
-        {
-            // 客户端逻辑
-            // 客户端只能发给 Host。
-            // 对于客户端来说，SendType 通常用于告诉 Host 怎么转发，但 TCP 层只能发给 Host。
-            // 具体的转发逻辑通常需要包含在 data 数据包内部（由 NetManager 处理），
-            // 或者 Transport 层默认全部发给 Host，由 Host 根据上下文决定。
-
-            // 这里我们简单处理：只要不是发给 JustSender 且 Sender 是自己（那没意义），就发给 Host
-            if (client != null && client.Connected)
-            {
-                lock (clientWriteLock)
-                {
-                    SendFrame(client.GetStream(), PacketType.Normal, LocalID, data);
-                }
-            }
-        }
-    }
+    public ulong CurrentSenderId => _currentProcessingSenderId;
 
     public void Send(byte[] data, ulong targetId)
     {
@@ -296,6 +236,37 @@ public partial class LanTransport : INetTransport
         }
     }
 
+    public void SendToAll(byte[] data, ulong excludePeerId = 0)
+    {
+        SendToAll(data.AsSpan(), excludePeerId);
+    }
+
+    public void SendToAll(ReadOnlySpan<byte> data, ulong excludePeerId = 0)
+    {
+        if (!InRoom) return;
+
+        if (!isHost)
+        {
+            // 客机兜底：只能到主机
+            Send(data, HostID);
+            return;
+        }
+
+        lock (hostConnLock)
+        {
+            foreach (var kv in hostConnections)
+            {
+                if (excludePeerId != 0 && kv.Key == excludePeerId) continue;
+
+                var conn = kv.Value;
+                lock (conn.WriteLock)
+                {
+                    SendFrame(conn.Stream, PacketType.Normal, LocalID, data);
+                }
+            }
+        }
+    }
+
     public void Poll()
     {
         // 处理最多 50 个包防止卡死主线程
@@ -304,13 +275,9 @@ public partial class LanTransport : INetTransport
         {
             count++;
 
-            // 设置当前上下文 SenderID
-            // 如果 NetManager 在 AnalyseStream 内部调用了 Send(..., OthersExceptSender)
-            // Send 方法会使用这个 ID 进行过滤
+            // 供 NetManager 转发时排除原发送者 / Pong 回包
             _currentProcessingSenderId = packet.senderId;
-
-            // 调用上层逻辑 (不做任何签名修改)
-            NetManager.Instance.AnalyseStream(packet.data);
+            NetManager.Instance.ProcessIncoming(packet.data);
         }
 
         // 处理完后重置，避免后续逻辑误用

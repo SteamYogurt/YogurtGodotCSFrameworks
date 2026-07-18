@@ -131,36 +131,7 @@ public partial class SteamTransport : INetTransport
 
     public bool AmIHost() => HostID == LocalID;
 
-    public void Send(byte[] data, SendType type)
-    {
-        Send(data.AsSpan(), type);
-    }
-
-    public void Send(ReadOnlySpan<byte> data, SendType type)
-    {
-        if (!InRoom) return;
-
-        ulong myID = LocalID;
-        ulong hostID = HostID;
-        ulong sID = senderID.m_SteamID;
-
-        // 优化：直接遍历 C# 缓存列表，不调用 Native API
-        for (int i = 0; i < _cachedMemberIDs.Count; i++)
-        {
-            ulong memberID = _cachedMemberIDs[i];
-
-            bool shouldSend = type switch
-            {
-                SendType.AllOthers => memberID != myID,
-                SendType.Host => memberID == hostID,
-                SendType.JustSender => memberID == sID,
-                SendType.OthersExceptSender => memberID != myID && memberID != sID,
-                _ => false
-            };
-
-            if (shouldSend) Send(data, memberID);
-        }
-    }
+    public ulong CurrentSenderId => senderID.m_SteamID;
 
     public void Send(byte[] data, ulong targetSteamID)
     {
@@ -169,6 +140,9 @@ public partial class SteamTransport : INetTransport
 
     public void Send(ReadOnlySpan<byte> data, ulong targetSteamID)
     {
+        if (!InRoom) return;
+        if (targetSteamID == 0 || targetSteamID == LocalID) return;
+
         SteamNetworkingIdentity identity = new SteamNetworkingIdentity();
         identity.SetSteamID(new CSteamID(targetSteamID));
 
@@ -184,6 +158,31 @@ public partial class SteamTransport : INetTransport
                     P2P_CHANNEL
                 );
             }
+        }
+    }
+
+    public void SendToAll(byte[] data, ulong excludePeerId = 0)
+    {
+        SendToAll(data.AsSpan(), excludePeerId);
+    }
+
+    public void SendToAll(ReadOnlySpan<byte> data, ulong excludePeerId = 0)
+    {
+        if (!InRoom) return;
+
+        ulong myID = LocalID;
+        if (!AmIHost())
+        {
+            Send(data, HostID);
+            return;
+        }
+
+        for (int i = 0; i < _cachedMemberIDs.Count; i++)
+        {
+            ulong memberID = _cachedMemberIDs[i];
+            if (memberID == myID) continue;
+            if (excludePeerId != 0 && memberID == excludePeerId) continue;
+            Send(data, memberID);
         }
     }
 
@@ -210,7 +209,7 @@ public partial class SteamTransport : INetTransport
 
                     if (senderID.m_SteamID != LocalID)
                     {
-                        NetManager.Instance.AnalyseStream(data);
+                        NetManager.Instance.ProcessIncoming(data);
                     }
 
                     SteamNetworkingMessage_t.Release(messages[i]);

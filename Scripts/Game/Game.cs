@@ -212,7 +212,7 @@ public partial class Game : Node,INetObject
             GD.Print("游戏不允许进入，直接踢出玩家");
             foreach (var pInfo in playerToAdd)
             {
-                NetManager.Instance.SendEventToPlayer(pInfo.id, "Kick");
+                NetManager.Instance.SendEventToPeer(pInfo.id, "Kick");
             }
             return;
         }

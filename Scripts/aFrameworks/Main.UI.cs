@@ -15,8 +15,8 @@ public partial class Main
         Game.PendingOnlineContext = null;
         ClearAllUnimportantUI();
         StopObservingTransport();
-        TransportManager.Instance.Deactive();
-        NetManager.Instance.Deactive();
+        TransportManager.Instance.Deactivate();
+        NetManager.Instance.Deactivate();
         if (Game.instance != null)
         {
             Game.instance.QueueFree();

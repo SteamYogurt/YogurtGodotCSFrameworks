@@ -87,7 +87,7 @@ public partial class TransportManager : Singleton<TransportManager>
         HostQuit?.Invoke();
     }
 
-    public void Deactive()
+    public void Deactivate()
     {
         UnbindCurrent(Current);
         Current?.Free();
