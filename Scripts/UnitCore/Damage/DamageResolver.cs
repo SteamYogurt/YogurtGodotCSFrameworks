@@ -121,7 +121,7 @@ public static class DamageResolver
 
     static void CollectModifiers(DamageContext ctx, DamageModifierCollectSession session)
     {
-        session.AddOwnerModifiers(UnitCoreModifiers.GlobalOwner);
+        session.AddOwnerModifiers(CombatRuntime.GlobalModifierOwner);
         session.AddOwnerModifiers(ctx.Attacker);
         session.AddOwnerModifiers(ctx.Target);
         session.AddOwnerModifiers(ctx.Source?.SourceObject);

@@ -1,58 +1,47 @@
 using System;
-using System.Collections.Generic;
 using Godot;
 
 public static class PromotionUnitEffectHelper
 {
-    public static void ForEachMatchingUnit(
-        ObjectFilter unitFilter,
-        Action<IUnit> action,
-        bool skipInvalid = true)
-    {
-        if (action == null)
-        {
-            return;
-        }
+	public static bool IsUnitValid(IUnit unit)
+	{
+		if (unit == null)
+		{
+			return false;
+		}
 
-        IEnumerable<IUnit> units = PromotionServices.ActiveUnits?.Invoke();
-        if (units == null)
-        {
-            return;
-        }
+		if (unit is GodotObject godotObject)
+		{
+			return GodotObject.IsInstanceValid(godotObject);
+		}
 
-        foreach (IUnit unit in units)
-        {
-            if (unit == null)
-            {
-                continue;
-            }
+		return true;
+	}
 
-            if (skipInvalid && unit is GodotObject godotObject && !GodotObject.IsInstanceValid(godotObject))
-            {
-                continue;
-            }
+	public static string GetUnitFilterDescription(ObjectFilter unitFilter)
+	{
+		if (unitFilter == null)
+		{
+			return Tr("所有单位");
+		}
 
-            if (unitFilter != null && !unitFilter.IsMatch(unit))
-            {
-                continue;
-            }
+		string filterDescription = unitFilter.GetDescription();
+		if (string.IsNullOrEmpty(filterDescription) || filterDescription == Tr("所有对象"))
+		{
+			return Tr("所有单位");
+		}
 
-            action(unit);
-        }
-    }
+		return string.Format(
+			Tr("满足条件的单位（{0}）"),
+			filterDescription);
+	}
 
-    public static bool IsUnitValid(IUnit unit)
-    {
-        if (unit == null)
-        {
-            return false;
-        }
-
-        if (unit is GodotObject godotObject)
-        {
-            return GodotObject.IsInstanceValid(godotObject);
-        }
-
-        return true;
-    }
+	[Obsolete("Use MatchContext.ForEachActiveUnit instead.")]
+	public static void ForEachMatchingUnit(
+		ObjectFilter unitFilter,
+		Action<IUnit> action,
+		bool skipInvalid = true)
+	{
+		CombatRuntime.Current?.ForEachActiveUnit(action, unitFilter, skipInvalid);
+	}
 }

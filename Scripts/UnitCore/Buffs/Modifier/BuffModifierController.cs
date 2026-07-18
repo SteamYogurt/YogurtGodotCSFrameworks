@@ -1,84 +1,23 @@
-using System.Collections.Generic;
-using System.Runtime.CompilerServices;
-
-public class BuffModifierController
+public class BuffModifierController : ModifierController<BuffModifier>
 {
-    readonly List<BuffModifier> modifiers = new();
-    public IReadOnlyList<BuffModifier> Modifiers => modifiers;
-
-    public void AddModifier(BuffModifier modifier)
-    {
-        if (modifier == null)
-        {
-            return;
-        }
-
-        ModifierCollectionUtil.InsertSortedByPriority(
-            modifiers,
-            modifier,
-            static m => m.Priority);
-    }
-
-    public bool RemoveModifier(BuffModifier modifier)
-    {
-        if (modifier == null)
-        {
-            return false;
-        }
-
-        return modifiers.Remove(modifier);
-    }
-
-    public void RemoveAllFromSource(object source)
-    {
-        if (source == null)
-        {
-            return;
-        }
-
-        modifiers.RemoveAll(m => ReferenceEquals(m.RuntimeSource, source));
-    }
-
-    public void Clear()
-    {
-        modifiers.Clear();
-    }
-
-    public bool HasAny()
-    {
-        return modifiers.Count > 0;
-    }
+	public BuffModifierController()
+		: base(
+			static m => m.Priority,
+			static m => m.RuntimeSource)
+	{
+	}
 }
 
 public static class BuffModifierOwnerExt
 {
-    static ConditionalWeakTable<object, BuffModifierController> controllers = new();
+	public static BuffModifierController GetBuffModifierController(this object owner) =>
+		ModifierOwnerStore<BuffModifierController>.Get(owner);
 
-    public static BuffModifierController GetBuffModifierController(this object owner)
-    {
-        if (owner == null)
-        {
-            return null;
-        }
+	public static bool TryGetBuffModifierController(
+		this object owner,
+		out BuffModifierController controller) =>
+		ModifierOwnerStore<BuffModifierController>.TryGet(owner, out controller);
 
-        return controllers.GetValue(owner, _ => new BuffModifierController());
-    }
-
-    public static bool TryGetBuffModifierController(
-        this object owner,
-        out BuffModifierController controller)
-    {
-        controller = null;
-        if (owner == null)
-        {
-            return false;
-        }
-
-        return controllers.TryGetValue(owner, out controller);
-    }
-
-    public static void ResetAllBuffModifierControllers()
-    {
-        controllers = new ConditionalWeakTable<object, BuffModifierController>();
-    }
+	public static void ResetAllBuffModifierControllers() =>
+		ModifierOwnerStore<BuffModifierController>.ResetAll();
 }

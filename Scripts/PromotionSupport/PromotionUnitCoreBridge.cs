@@ -1,73 +1,94 @@
+using System;
 using Godot;
 
-public static class PromotionUnitCoreBridge
+/// <summary>
+/// Match-scoped adapter: <see cref="UnitCoreEvents"/> → <see cref="PromotionEventBus"/>.
+/// Owned and disposed by <see cref="MatchContext"/>.
+/// </summary>
+public sealed class PromotionUnitCoreBridge : IDisposable
 {
-    static bool registered;
+	readonly MatchContext match;
+	bool registered;
+	bool disposed;
 
-    public static void Register()
-    {
-        if (registered)
-        {
-            return;
-        }
+	public PromotionUnitCoreBridge(MatchContext match)
+	{
+		this.match = match ?? throw new ArgumentNullException(nameof(match));
+	}
 
-        registered = true;
-        UnitCoreEvents.DealingDamage += OnDealingDamage;
-        UnitCoreEvents.DealtDamage += OnDealtDamage;
-        UnitCoreEvents.ReceivingDamage += OnReceivingDamage;
-        UnitCoreEvents.ReceivedDamage += OnReceivedDamage;
-    }
+	public void Register()
+	{
+		if (registered || disposed)
+		{
+			return;
+		}
 
-    public static void Unregister()
-    {
-        if (!registered)
-        {
-            return;
-        }
+		registered = true;
+		UnitCoreEvents.DealingDamage += OnDealingDamage;
+		UnitCoreEvents.DealtDamage += OnDealtDamage;
+		UnitCoreEvents.ReceivingDamage += OnReceivingDamage;
+		UnitCoreEvents.ReceivedDamage += OnReceivedDamage;
+	}
 
-        registered = false;
-        UnitCoreEvents.DealingDamage -= OnDealingDamage;
-        UnitCoreEvents.DealtDamage -= OnDealtDamage;
-        UnitCoreEvents.ReceivingDamage -= OnReceivingDamage;
-        UnitCoreEvents.ReceivedDamage -= OnReceivedDamage;
-    }
+	public void Unregister()
+	{
+		if (!registered)
+		{
+			return;
+		}
 
-    static void OnDealingDamage(DamageContext ctx) =>
-        RaiseDamage(PromotionEventType.DealingDamage, ctx);
+		registered = false;
+		UnitCoreEvents.DealingDamage -= OnDealingDamage;
+		UnitCoreEvents.DealtDamage -= OnDealtDamage;
+		UnitCoreEvents.ReceivingDamage -= OnReceivingDamage;
+		UnitCoreEvents.ReceivedDamage -= OnReceivedDamage;
+	}
 
-    static void OnDealtDamage(DamageContext ctx) =>
-        RaiseDamage(PromotionEventType.DealtDamage, ctx);
+	void OnDealingDamage(DamageContext ctx) =>
+		RaiseDamage(PromotionEventType.DealingDamage, ctx);
 
-    static void OnReceivingDamage(DamageContext ctx) =>
-        RaiseDamage(PromotionEventType.ReceivingDamage, ctx);
+	void OnDealtDamage(DamageContext ctx) =>
+		RaiseDamage(PromotionEventType.DealtDamage, ctx);
 
-    static void OnReceivedDamage(DamageContext ctx) =>
-        RaiseDamage(PromotionEventType.ReceivedDamage, ctx);
+	void OnReceivingDamage(DamageContext ctx) =>
+		RaiseDamage(PromotionEventType.ReceivingDamage, ctx);
 
-    static void RaiseDamage(PromotionEventType eventType, DamageContext damageContext)
-    {
-        ConditionContext context = BuildDamageContext(damageContext);
-        PromotionEventBus.Raise(eventType, context);
-    }
+	void OnReceivedDamage(DamageContext ctx) =>
+		RaiseDamage(PromotionEventType.ReceivedDamage, ctx);
 
-    public static ConditionContext BuildDamageContext(DamageContext damageContext)
-    {
-        ConditionContext context = new ConditionContext()
-            .Set(ConditionSubjectKey.DamageContext, damageContext);
+	void RaiseDamage(PromotionEventType eventType, DamageContext damageContext)
+	{
+		using ConditionContextScope scope = match.OpenContext();
+		FillDamageContext(scope.Context, damageContext);
+		match.EventBus.Raise(eventType, scope.Context);
+	}
 
-        if (damageContext == null)
-        {
-            return context;
-        }
+	static void FillDamageContext(ConditionContext context, DamageContext damageContext)
+	{
+		context.Set(ConditionSubjectKey.DamageContext, damageContext);
 
-        context.Set(ConditionSubjectKey.Attacker, damageContext.Attacker);
-        context.Set(ConditionSubjectKey.Target, damageContext.Target);
+		if (damageContext == null)
+		{
+			return;
+		}
 
-        if (damageContext.Target is Node3D targetNode)
-        {
-            context.Set(ConditionSubjectKey.Position, targetNode.GlobalPosition);
-        }
+		context.Set(ConditionSubjectKey.Attacker, damageContext.Attacker);
+		context.Set(ConditionSubjectKey.Target, damageContext.Target);
 
-        return context;
-    }
+		if (damageContext.Target is Node3D targetNode)
+		{
+			context.Set(ConditionSubjectKey.Position, targetNode.GlobalPosition);
+		}
+	}
+
+	public void Dispose()
+	{
+		if (disposed)
+		{
+			return;
+		}
+
+		disposed = true;
+		Unregister();
+	}
 }

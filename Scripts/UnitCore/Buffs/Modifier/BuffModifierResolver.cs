@@ -77,7 +77,7 @@ public static class BuffModifierResolver
 
     static void CollectModifiers(BuffModifierContext context, BuffModifierCollectSession session)
     {
-        session.AddOwnerModifiers(UnitCoreModifiers.GlobalOwner);
+        session.AddOwnerModifiers(CombatRuntime.GlobalModifierOwner);
         session.AddOwnerModifiers(context.Owner);
         session.AddOwnerModifiers(context.Caster);
         session.AddOwnerModifiers(context.BuffInstance);

@@ -4,72 +4,88 @@ using System.Collections.Generic;
 
 public class PromotionInstance
 {
-    public Promotion sourcePromotion;
-    public Array<PromotionEffect> copiedPromotionEffects;
-    readonly List<PromotionEffectHandle> handles = new();
+	public Promotion sourcePromotion;
+	public Array<PromotionEffect> copiedPromotionEffects;
+	readonly List<PromotionEffectHandle> handles = new();
 
-    public bool IsActive { get; private set; }
+	public MatchContext Match { get; private set; }
+	public bool IsActive { get; private set; }
 
-    public PromotionInstance(Promotion sourcePromotion)
-    {
-        this.sourcePromotion = sourcePromotion;
-        copiedPromotionEffects = new Array<PromotionEffect>();
+	public PromotionInstance(Promotion sourcePromotion)
+	{
+		this.sourcePromotion = sourcePromotion;
+		copiedPromotionEffects = new Array<PromotionEffect>();
 
-        if (sourcePromotion?.promotionEffects == null)
-        {
-            return;
-        }
+		if (sourcePromotion?.promotionEffects == null)
+		{
+			return;
+		}
 
-        foreach (PromotionEffect effect in sourcePromotion.promotionEffects)
-        {
-            if (effect == null)
-            {
-                continue;
-            }
+		foreach (PromotionEffect effect in sourcePromotion.promotionEffects)
+		{
+			if (effect == null)
+			{
+				continue;
+			}
 
-            copiedPromotionEffects.Add(effect.DuplicateDeep() as PromotionEffect);
-        }
-    }
+			copiedPromotionEffects.Add(effect.DuplicateDeep() as PromotionEffect);
+		}
+	}
 
-    public void Activate()
-    {
-        if (IsActive)
-        {
-            return;
-        }
+	public void Activate(MatchContext match)
+	{
+		if (IsActive)
+		{
+			return;
+		}
 
-        PromotionEffectContext context = new PromotionEffectContext(this);
-        for (int i = 0; i < copiedPromotionEffects.Count; i++)
-        {
-            PromotionEffect effect = copiedPromotionEffects[i];
-            if (effect == null)
-            {
-                continue;
-            }
+		Match = match ?? throw new System.ArgumentNullException(nameof(match));
+		PromotionEffectContext context = new PromotionEffectContext(this, match);
 
-            PromotionEffectHandle handle = effect.Activate(context);
-            if (handle != null && handle != PromotionEffectHandle.Empty)
-            {
-                handles.Add(handle);
-            }
-        }
+		try
+		{
+			for (int i = 0; i < copiedPromotionEffects.Count; i++)
+			{
+				PromotionEffect effect = copiedPromotionEffects[i];
+				if (effect == null)
+				{
+					continue;
+				}
 
-        IsActive = true;
-    }
+				PromotionEffectHandle handle = effect.Activate(context);
+				if (handle != null && handle != PromotionEffectHandle.Empty)
+				{
+					handles.Add(handle);
+				}
+			}
 
-    public void Deactivate()
-    {
-        if (!IsActive)
-        {
-            return;
-        }
+			IsActive = true;
+		}
+		catch
+		{
+			DeactivateHandlesOnly();
+			throw;
+		}
+	}
 
-        for (int i = handles.Count - 1; i >= 0; i--)
-        {
-            handles[i]?.Dispose();
-        }
+	public void Deactivate()
+	{
+		if (!IsActive)
+		{
+			return;
+		}
 
-        handles.Clear();
-        IsActive = false;
-    }
+		DeactivateHandlesOnly();
+		IsActive = false;
+	}
+
+	void DeactivateHandlesOnly()
+	{
+		for (int i = handles.Count - 1; i >= 0; i--)
+		{
+			handles[i]?.Dispose();
+		}
+
+		handles.Clear();
+	}
 }

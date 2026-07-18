@@ -1,11 +1,13 @@
 public class PromotionEffectContext
 {
-    public PromotionInstance Instance { get; }
-    public Promotion Source => Instance?.sourcePromotion;
-    public object ModifierOwner => PromotionServices.GlobalModifierOwner;
+	public MatchContext Match { get; }
+	public PromotionInstance Instance { get; }
+	public Promotion Source => Instance?.sourcePromotion;
+	public object ModifierOwner => Match.GlobalModifierOwner;
 
-    public PromotionEffectContext(PromotionInstance instance)
-    {
-        Instance = instance;
-    }
+	public PromotionEffectContext(PromotionInstance instance, MatchContext match)
+	{
+		Instance = instance;
+		Match = match ?? throw new System.ArgumentNullException(nameof(match));
+	}
 }

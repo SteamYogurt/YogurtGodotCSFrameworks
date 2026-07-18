@@ -51,7 +51,7 @@ public partial class Action_DealDamage : PromotionAction
             DealDamageToUnit(sourceUnit, targetUnit);
         }
 
-        SpawnTempEffect(impactPosition);
+        SpawnTempEffect(context, impactPosition);
     }
 
     void ApplyAreaDamage(
@@ -64,8 +64,8 @@ public partial class Action_DealDamage : PromotionAction
         HashSet<IUnit> damagedUnits = new();
         TryDealAreaTarget(sourceUnit, primaryTarget, impactPosition, radius, damagedUnits);
 
-        PromotionUnitEffectHelper.ForEachMatchingUnit(
-            null,
+        MatchContext match = context.Match ?? CombatRuntime.Current;
+        match?.ForEachActiveUnit(
             unit => TryDealAreaTarget(sourceUnit, unit, impactPosition, radius, damagedUnits));
     }
 
@@ -155,14 +155,15 @@ public partial class Action_DealDamage : PromotionAction
         return damageContext;
     }
 
-    void SpawnTempEffect(Vector3 impactPosition)
+    void SpawnTempEffect(ConditionContext context, Vector3 impactPosition)
     {
         if (string.IsNullOrEmpty(tempEffectName))
         {
             return;
         }
 
-        PromotionServices.SpawnEffectAtPosition?.Invoke(tempEffectName, impactPosition);
+        MatchContext match = context?.Match ?? CombatRuntime.Current;
+        match?.SpawnEffectAtPosition?.Invoke(tempEffectName, impactPosition);
     }
 
     Vector3 ResolvePosition(ConditionContext context)

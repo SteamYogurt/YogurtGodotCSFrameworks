@@ -1,72 +1,83 @@
 using Godot;
 
 /// <summary>
-/// Single entry to reset and prepare UnitCore + Promotion runtime for a new match.
+/// Single entry to create and tear down a <see cref="MatchContext"/> for UnitCore + Promotion.
 /// Call <see cref="BeginMatch"/> when a run starts; <see cref="EndMatch"/> when it ends.
 /// </summary>
 public static class CombatRuntime
 {
-    public static bool IsMatchActive { get; private set; }
+	public static MatchContext Current { get; private set; }
 
-    /// <summary>
-    /// Resets all global combat/promotion state, then registers bridges and applies optional game hooks.
-    /// </summary>
-    public static void BeginMatch(CombatRuntimeMatchOptions options = null)
-    {
-        ResetInternal();
-        ApplyOptions(options);
-        PromotionManager.MarkReady();
-        IsMatchActive = true;
-    }
+	public static bool IsMatchActive => Current is { IsActive: true };
 
-    /// <summary>
-    /// Same as <see cref="BeginMatch"/> without game-layer hooks (tests or minimal setup).
-    /// </summary>
-    public static void BeginMatchMinimal() => BeginMatch(null);
+	/// <summary>
+	/// Global modifier owner for the active match (promotion-wide damage/buff modifiers).
+	/// </summary>
+	public static object GlobalModifierOwner => Current?.GlobalModifierOwner;
 
-    /// <summary>
-    /// Tears down match state. Safe to call even if <see cref="BeginMatch"/> was not called.
-    /// </summary>
-    public static void EndMatch()
-    {
-        ResetInternal();
-        IsMatchActive = false;
-    }
+	/// <summary>
+	/// Resets global UnitCore scratch state, then creates and activates a new <see cref="MatchContext"/>.
+	/// </summary>
+	public static MatchContext BeginMatch(CombatRuntimeMatchOptions options = null)
+	{
+		EndMatch();
+		ResetUnitCoreScratch();
 
-    static void ResetInternal()
-    {
-        PromotionManager.ClearAll();
-        PromotionUnitCoreBridge.Unregister();
+		MatchContext match = new MatchContext(options);
+		if (options != null && !string.IsNullOrEmpty(options.BuffResourceRootPath))
+		{
+			Buff.LoadFrom(options.BuffResourceRootPath);
+		}
 
-        UnitCoreEvents.Reset();
+		DamageFeedback.SpawnText = options?.SpawnDamageText;
+		Current = match;
+		match.Activate();
+		return match;
+	}
 
-        DamageModifierOwnerExt.ResetAllDamageModifierControllers();
-        BuffModifierOwnerExt.ResetAllBuffModifierControllers();
+	/// <summary>
+	/// Same as <see cref="BeginMatch"/> without game-layer hooks (tests or minimal setup).
+	/// </summary>
+	public static MatchContext BeginMatchMinimal() => BeginMatch(null);
 
-        DamageModifierCollectSession.ResetScratch();
-        BuffModifierCollectSession.ResetScratch();
+	/// <summary>
+	/// Tears down the current match. Safe to call even if <see cref="BeginMatch"/> was not called.
+	/// </summary>
+	public static void EndMatch()
+	{
+		if (Current != null)
+		{
+			Current.Dispose();
+			Current = null;
+		}
 
-        UnitCoreModifiers.GlobalOwner = null;
+		ResetUnitCoreScratch();
+		DamageFeedback.SpawnText = null;
+		ConditionContext.ClearPool();
+	}
 
-        DamageFeedback.SpawnText = null;
-        PromotionServices.ActiveUnits = null;
-        PromotionServices.SpawnEffectAtPosition = null;
-    }
+	/// <summary>
+	/// Returns the active match or throws. Prefer passing <see cref="MatchContext"/> explicitly when available.
+	/// </summary>
+	public static MatchContext RequireCurrent()
+	{
+		if (!IsMatchActive)
+		{
+			throw new System.InvalidOperationException(
+				"No active MatchContext. Call CombatRuntime.BeginMatch first.");
+		}
 
-    static void ApplyOptions(CombatRuntimeMatchOptions options)
-    {
-        if (options == null)
-        {
-            return;
-        }
+		return Current;
+	}
 
-        PromotionServices.ActiveUnits = options.ActiveUnits;
-        DamageFeedback.SpawnText = options.SpawnDamageText;
-        PromotionServices.SpawnEffectAtPosition = options.SpawnEffectAtPosition;
+	static void ResetUnitCoreScratch()
+	{
+		UnitCoreEvents.Reset();
 
-        if (!string.IsNullOrEmpty(options.BuffResourceRootPath))
-        {
-            Buff.LoadFrom(options.BuffResourceRootPath);
-        }
-    }
+		DamageModifierOwnerExt.ResetAllDamageModifierControllers();
+		BuffModifierOwnerExt.ResetAllBuffModifierControllers();
+
+		DamageModifierCollectSession.ResetScratch();
+		BuffModifierCollectSession.ResetScratch();
+	}
 }

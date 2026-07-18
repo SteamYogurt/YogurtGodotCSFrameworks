@@ -4,58 +4,89 @@ using Godot;
 
 public sealed class PromotionEffectHandle : IDisposable
 {
-    public static PromotionEffectHandle Empty { get; } = new();
+	public static PromotionEffectHandle Empty { get; } = new(isEmpty: true);
 
-    readonly List<IDisposable> disposables = new();
-    readonly List<Action> cleanups = new();
-    bool disposed;
+	readonly List<IDisposable> disposables = new();
+	readonly List<Action> cleanups = new();
+	readonly HashSet<object> onceKeys = new();
+	readonly bool isEmpty;
+	bool disposed;
 
-    public void AddSubscription(IDisposable subscription)
-    {
-        if (subscription == null || disposed)
-        {
-            return;
-        }
+	public PromotionEffectHandle()
+		: this(isEmpty: false)
+	{
+	}
 
-        disposables.Add(subscription);
-    }
+	PromotionEffectHandle(bool isEmpty)
+	{
+		this.isEmpty = isEmpty;
+	}
 
-    public void AddCleanup(Action cleanup)
-    {
-        if (cleanup == null || disposed)
-        {
-            return;
-        }
+	public void AddSubscription(IDisposable subscription)
+	{
+		if (isEmpty || subscription == null || disposed)
+		{
+			return;
+		}
 
-        cleanups.Add(cleanup);
-    }
+		disposables.Add(subscription);
+	}
 
-    public void Dispose()
-    {
-        if (disposed)
-        {
-            return;
-        }
+	public void AddCleanup(Action cleanup)
+	{
+		if (isEmpty || cleanup == null || disposed)
+		{
+			return;
+		}
 
-        disposed = true;
+		cleanups.Add(cleanup);
+	}
 
-        for (int i = disposables.Count - 1; i >= 0; i--)
-        {
-            disposables[i]?.Dispose();
-        }
-        disposables.Clear();
+	/// <summary>
+	/// Registers a cleanup at most once for the given key (e.g. unit + source pair).
+	/// </summary>
+	public void AddCleanupOnce(object key, Action cleanup)
+	{
+		if (isEmpty || cleanup == null || disposed || key == null)
+		{
+			return;
+		}
 
-        for (int i = cleanups.Count - 1; i >= 0; i--)
-        {
-            try
-            {
-                cleanups[i]?.Invoke();
-            }
-            catch (Exception e)
-            {
-                GD.PrintErr($"Promotion effect cleanup failed: {e}");
-            }
-        }
-        cleanups.Clear();
-    }
+		if (!onceKeys.Add(key))
+		{
+			return;
+		}
+
+		cleanups.Add(cleanup);
+	}
+
+	public void Dispose()
+	{
+		if (isEmpty || disposed)
+		{
+			return;
+		}
+
+		disposed = true;
+
+		for (int i = disposables.Count - 1; i >= 0; i--)
+		{
+			disposables[i]?.Dispose();
+		}
+		disposables.Clear();
+
+		for (int i = cleanups.Count - 1; i >= 0; i--)
+		{
+			try
+			{
+				cleanups[i]?.Invoke();
+			}
+			catch (Exception e)
+			{
+				GD.PrintErr($"Promotion effect cleanup failed: {e}");
+			}
+		}
+		cleanups.Clear();
+		onceKeys.Clear();
+	}
 }

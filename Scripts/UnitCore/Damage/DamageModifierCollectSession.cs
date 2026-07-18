@@ -3,129 +3,101 @@ using System.Collections.Generic;
 
 internal sealed class DamageModifierCollectSession : IDisposable
 {
-    const int StageBucketCount = 8;
+	const int StageBucketCount = 8;
 
-    static readonly List<DamageModifierCollectSession> SessionStack = new();
-    static int depth;
+	static readonly ModifierCollectSessionStack<DamageModifierCollectSession> Stack = new(
+		static () => new DamageModifierCollectSession(),
+		static session => session.Clear());
 
-    readonly HashSet<object> addedOwners;
-    readonly List<DamageModifier>[] byStage;
+	readonly HashSet<object> addedOwners = new();
+	readonly List<DamageModifier>[] byStage;
 
-    DamageModifierCollectSession(HashSet<object> owners, List<DamageModifier>[] stageBuckets)
-    {
-        addedOwners = owners;
-        byStage = stageBuckets;
-    }
+	DamageModifierCollectSession()
+	{
+		byStage = new List<DamageModifier>[StageBucketCount];
+		for (int i = 0; i < StageBucketCount; i++)
+		{
+			byStage[i] = new List<DamageModifier>();
+		}
+	}
 
-    public static DamageModifierCollectSession Begin()
-    {
-        if (depth >= SessionStack.Count)
-        {
-            var stageBuckets = new List<DamageModifier>[StageBucketCount];
-            for (int i = 0; i < StageBucketCount; i++)
-            {
-                stageBuckets[i] = new List<DamageModifier>();
-            }
+	public static DamageModifierCollectSession Begin() => Stack.Begin();
 
-            SessionStack.Add(new DamageModifierCollectSession(
-                new HashSet<object>(),
-                stageBuckets));
-        }
+	public List<DamageModifier> GetStageList(DamageResolveStage stage)
+	{
+		int index = (int)stage;
+		if (index < 0 || index >= StageBucketCount)
+		{
+			return null;
+		}
 
-        DamageModifierCollectSession session = SessionStack[depth];
-        session.Clear();
-        depth++;
-        return session;
-    }
+		return byStage[index];
+	}
 
-    public List<DamageModifier> GetStageList(DamageResolveStage stage)
-    {
-        int index = (int)stage;
-        if (index < 0 || index >= StageBucketCount)
-        {
-            return null;
-        }
+	public void AddModifier(DamageModifier modifier)
+	{
+		if (modifier == null)
+		{
+			return;
+		}
 
-        return byStage[index];
-    }
+		List<DamageModifier> bucket = GetStageList(modifier.ApplyStage);
+		if (bucket == null)
+		{
+			return;
+		}
 
-    public void AddModifier(DamageModifier modifier)
-    {
-        if (modifier == null)
-        {
-            return;
-        }
+		ModifierCollectionUtil.InsertSortedByPriority(
+			bucket,
+			modifier,
+			static m => m.Priority);
+	}
 
-        List<DamageModifier> bucket = GetStageList(modifier.ApplyStage);
-        if (bucket == null)
-        {
-            return;
-        }
+	public void AddOwnerModifiers(object owner)
+	{
+		if (owner == null || !addedOwners.Add(owner))
+		{
+			return;
+		}
 
-        ModifierCollectionUtil.InsertSortedByPriority(
-            bucket,
-            modifier,
-            static m => m.Priority);
-    }
+		if (!owner.TryGetDamageModifierController(out DamageModifierController controller)
+			|| controller == null
+			|| !controller.HasAny())
+		{
+			return;
+		}
 
-    public void AddOwnerModifiers(object owner)
-    {
-        if (owner == null || !addedOwners.Add(owner))
-        {
-            return;
-        }
+		IReadOnlyList<DamageModifier> modifiers = controller.Modifiers;
+		for (int i = 0; i < modifiers.Count; i++)
+		{
+			AddModifier(modifiers[i]);
+		}
+	}
 
-        if (!owner.TryGetDamageModifierController(out DamageModifierController controller)
-            || controller == null
-            || !controller.HasAny())
-        {
-            return;
-        }
+	public void AddBuffControllerModifiers(BuffController buffController)
+	{
+		if (buffController == null)
+		{
+			return;
+		}
 
-        IReadOnlyList<DamageModifier> modifiers = controller.Modifiers;
-        for (int i = 0; i < modifiers.Count; i++)
-        {
-            AddModifier(modifiers[i]);
-        }
-    }
+		List<BuffInstance> activeBuffs = buffController.ActiveBuffs;
+		for (int i = 0; i < activeBuffs.Count; i++)
+		{
+			AddOwnerModifiers(activeBuffs[i]);
+		}
+	}
 
-    public void AddBuffControllerModifiers(BuffController buffController)
-    {
-        if (buffController == null)
-        {
-            return;
-        }
+	void Clear()
+	{
+		addedOwners.Clear();
+		for (int i = 0; i < StageBucketCount; i++)
+		{
+			byStage[i].Clear();
+		}
+	}
 
-        List<BuffInstance> activeBuffs = buffController.ActiveBuffs;
-        for (int i = 0; i < activeBuffs.Count; i++)
-        {
-            AddOwnerModifiers(activeBuffs[i]);
-        }
-    }
+	public void Dispose() => Stack.End();
 
-    void Clear()
-    {
-        addedOwners.Clear();
-        for (int i = 0; i < StageBucketCount; i++)
-        {
-            byStage[i].Clear();
-        }
-    }
-
-    public void Dispose()
-    {
-        if (depth > 0)
-        {
-            depth--;
-        }
-    }
-
-    internal static void ResetScratch()
-    {
-        depth = 0;
-        for (int i = 0; i < SessionStack.Count; i++)
-        {
-            SessionStack[i].Clear();
-        }
-    }
+	internal static void ResetScratch() => Stack.ResetScratch();
 }
