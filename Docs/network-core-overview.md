@@ -107,3 +107,11 @@
 - 无主机迁移；主机退出即会话结束
 - 无不可靠信道 / AOI；全可靠 + 全量对象状态扫描
 - 线协议 `Action` / `Request` 槽位未实现，勿用
+
+## 单元测试
+
+纯逻辑（路由 / Spawn-Destroy 乱序 / 脏标记 mask）不依赖 Godot，可本地跑：
+
+```bash
+dotnet test Tests/Net.Tests/Net.Tests.csproj
+```

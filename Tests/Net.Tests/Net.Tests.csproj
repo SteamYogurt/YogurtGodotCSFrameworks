@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>Net.Tests</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+  <!-- 直接编译纯逻辑源文件，不依赖 Godot 程序集 -->
+  <ItemGroup>
+    <Compile Include="..\..\Scripts\aFrameworks\Net\NetSendFlags.cs" Link="Shared\NetSendFlags.cs" />
+    <Compile Include="..\..\Scripts\aFrameworks\Net\NetRouting.cs" Link="Shared\NetRouting.cs" />
+    <Compile Include="..\..\Scripts\aFrameworks\Net\NetSpawnDestroyGuard.cs" Link="Shared\NetSpawnDestroyGuard.cs" />
+    <Compile Include="..\..\Scripts\aFrameworks\Net\NetVarMaskUtil.cs" Link="Shared\NetVarMaskUtil.cs" />
+  </ItemGroup>
+</Project>

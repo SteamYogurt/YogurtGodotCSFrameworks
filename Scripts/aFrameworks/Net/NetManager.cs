@@ -25,14 +25,14 @@ public partial class NetManager : Singleton<NetManager>
     }
 
     /// <summary>点对点事件在包内 flags 字节上的标记（与 NetSendFlags 位不重叠）。</summary>
-    private const byte WirePeerTargetMarker = 0x80;
+    private const byte WirePeerTargetMarker = NetRouting.PeerTargetMarker;
     #endregion
 
     #region fields
     private Dictionary<uint, INetObject> idToObject = new();
     private Dictionary<INetObject, uint> objectToId = new();
     private Dictionary<uint, INetObject> lazyIdToObject = new();
-    private HashSet<uint> pendingDestroyIds = new();
+    private readonly NetSpawnDestroyGuard spawnDestroyGuard = new();
     public NetworkIdGenerator idGenerator = new NetworkIdGenerator();
 
     public TransportManager transportManager;
@@ -58,12 +58,17 @@ public partial class NetManager : Singleton<NetManager>
         idToObject.Clear();
         objectToId.Clear();
         lazyIdToObject.Clear();
-        pendingDestroyIds.Clear();
+        spawnDestroyGuard.Clear();
+        _receiveBuffer.Clear();
         idGenerator = new NetworkIdGenerator();
         AvgRTT = 0;
     }
 
-    public void Deactivate() => active = false;
+    public void Deactivate()
+    {
+        active = false;
+        _receiveBuffer.Clear();
+    }
 
     public override void _PhysicsProcess(double delta)
     {
@@ -119,20 +124,15 @@ public partial class NetManager : Singleton<NetManager>
 
     /// <summary>收包端：本机是否属于 flags 描述的网上接收者。</summary>
     private bool ShouldDeliverOnReceive(NetSendFlags flags)
-    {
-        if (Transport == null) return false;
-        if (IsHost) return (flags & NetSendFlags.Host) != 0;
-        return (flags & NetSendFlags.Clients) != 0;
-    }
+        => NetRouting.ShouldDeliverOnReceive(IsHost, flags);
 
     /// <summary>
     /// 发送端本地投递，与 flags 完全正交：
     /// alsoRunLocally=true → 调用方跑一次；false → 调用方不跑。
-    /// 主机若既是发送者又是 Host 接收者，请显式传 alsoRunLocally: true（无网络回环可走本地）。
     /// </summary>
     private static void DeliverOnSendIfNeeded(bool alsoRunLocally, Action deliver)
     {
-        if (alsoRunLocally)
+        if (NetRouting.ShouldRunLocallyOnSend(alsoRunLocally))
             deliver();
     }
 
@@ -170,7 +170,7 @@ public partial class NetManager : Singleton<NetManager>
             return;
         }
 
-        if ((flags & NetSendFlags.Clients) != 0)
+        if (NetRouting.ShouldHostOutboundToClients(flags))
             SendPackedToAllClients(body, excludePeerId);
     }
 
@@ -192,7 +192,7 @@ public partial class NetManager : Singleton<NetManager>
     private void HostForwardClientsIfNeeded(NetSendFlags flags)
     {
         if (!IsHost) return;
-        if ((flags & NetSendFlags.Clients) == 0) return;
+        if (!NetRouting.ShouldHostForwardToClients(flags)) return;
         ForwardToClientsExcludingOrigin();
     }
     #endregion
@@ -212,6 +212,12 @@ public partial class NetManager : Singleton<NetManager>
         {
             uint length = BinaryPrimitives.ReadUInt32LittleEndian(
                 System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_receiveBuffer).Slice(0, 4));
+            if (length == 0)
+            {
+                GD.PrintErr("ProcessIncoming: 收到长度为 0 的包，丢弃长度头");
+                _receiveBuffer.RemoveRange(0, 4);
+                continue;
+            }
             if (_receiveBuffer.Count < 4 + length) break;
 
             byte[] packet = _receiveBuffer.GetRange(4, (int)length).ToArray();
@@ -305,7 +311,7 @@ public partial class NetManager : Singleton<NetManager>
     {
         byte flagsByte = content[0];
 
-        if (flagsByte == WirePeerTargetMarker)
+        if (NetRouting.IsPeerTarget(flagsByte))
         {
             ulong targetId = BinaryPrimitives.ReadUInt64LittleEndian(content.Slice(1, 8));
             int strLen = BinaryPrimitives.ReadInt32LittleEndian(content.Slice(9, 4));
@@ -419,15 +425,15 @@ public partial class NetManager : Singleton<NetManager>
     private void ReadSpawnObj(ReadOnlySpan<byte> content)
     {
         uint id = BinaryPrimitives.ReadUInt32LittleEndian(content.Slice(0, 4));
+        bool already = idToObject.ContainsKey(id) || lazyIdToObject.ContainsKey(id);
 
-        // Destroy 先于 Spawn：忽略后续生成，等 Initial 清掉 pending
-        if (pendingDestroyIds.Contains(id))
-            return;
-
-        if (idToObject.ContainsKey(id) || lazyIdToObject.ContainsKey(id))
+        switch (spawnDestroyGuard.DecideSpawn(id, already))
         {
-            GD.PrintErr($"ReadSpawnObj: id {id} 已存在，忽略重复 SpawnObj");
-            return;
+            case NetSpawnDestroyGuard.SpawnDecision.SkipBecausePendingDestroy:
+                return;
+            case NetSpawnDestroyGuard.SpawnDecision.SkipBecauseDuplicate:
+                GD.PrintErr($"ReadSpawnObj: id {id} 已存在，忽略重复 SpawnObj");
+                return;
         }
 
         int nameLen = BinaryPrimitives.ReadInt32LittleEndian(content.Slice(4, 4));
@@ -437,7 +443,7 @@ public partial class NetManager : Singleton<NetManager>
         if (obj == null)
         {
             GD.PrintErr($"ReadSpawnObj: 无法实例化 {objName}，记入 pendingDestroy id:{id}");
-            pendingDestroyIds.Add(id);
+            spawnDestroyGuard.MarkPendingDestroy(id);
             return;
         }
         lazyIdToObject[id] = obj;
@@ -446,23 +452,25 @@ public partial class NetManager : Singleton<NetManager>
     private void ReadObjInitialPacket(ReadOnlySpan<byte> content)
     {
         uint id = BinaryPrimitives.ReadUInt32LittleEndian(content.Slice(0, 4));
+        bool hasLazy = lazyIdToObject.ContainsKey(id);
 
-        // Destroy 先于 Initial（或 Spawn 已因 pending 跳过）：忽略初始化并消费 pending
-        if (pendingDestroyIds.Remove(id))
+        switch (spawnDestroyGuard.DecideInitial(id, idToObject.ContainsKey(id), hasLazy))
         {
-            if (lazyIdToObject.TryGetValue(id, out var stale))
-            {
-                lazyIdToObject.Remove(id);
-                stale.INetDestroy();
-            }
-            return;
+            case NetSpawnDestroyGuard.InitialDecision.IgnoreBecausePendingDestroy:
+                if (lazyIdToObject.TryGetValue(id, out var stale))
+                {
+                    lazyIdToObject.Remove(id);
+                    stale.INetDestroy();
+                }
+                return;
+            case NetSpawnDestroyGuard.InitialDecision.IgnoreBecauseDuplicate:
+                GD.PrintErr($"ReadObjInitialPacket: id {id} 已存在，忽略重复初始包");
+                return;
+            case NetSpawnDestroyGuard.InitialDecision.MissingLazy:
+                GD.PrintErr($"ReadObjInitialPacket: 找不到 lazy obj id:{id}");
+                return;
         }
 
-        if (idToObject.ContainsKey(id))
-        {
-            GD.PrintErr($"ReadObjInitialPacket: id {id} 已存在，忽略重复初始包");
-            return;
-        }
         if (!lazyIdToObject.TryGetValue(id, out var obj))
         {
             GD.PrintErr($"ReadObjInitialPacket: 找不到 lazy obj id:{id}");
@@ -513,26 +521,31 @@ public partial class NetManager : Singleton<NetManager>
     private void ReadDestroyObj(ReadOnlySpan<byte> content)
     {
         uint id = BinaryPrimitives.ReadUInt32LittleEndian(content);
+        bool hasLazy = lazyIdToObject.ContainsKey(id);
+        bool hasReady = idToObject.ContainsKey(id);
 
-        if (lazyIdToObject.TryGetValue(id, out var lazyObj))
+        switch (spawnDestroyGuard.DecideDestroy(id, hasLazy, hasReady))
         {
-            lazyIdToObject.Remove(id);
-            lazyObj.INetDestroy();
-            // 可能还有迟到的 Initial：保留 pending 直到 Initial 消费
-            pendingDestroyIds.Add(id);
-            return;
-        }
+            case NetSpawnDestroyGuard.DestroyDecision.DestroyLazyKeepPending:
+                if (lazyIdToObject.TryGetValue(id, out var lazyObj))
+                {
+                    lazyIdToObject.Remove(id);
+                    lazyObj.INetDestroy();
+                }
+                return;
 
-        var obj = GetNetObject(id);
-        if (obj != null)
-        {
-            obj.INetDestroy();
-            RemoveNetObject(obj);
-            return;
-        }
+            case NetSpawnDestroyGuard.DestroyDecision.DestroyReady:
+                var obj = GetNetObject(id);
+                if (obj != null)
+                {
+                    obj.INetDestroy();
+                    RemoveNetObject(obj);
+                }
+                return;
 
-        // Destroy 先于 Spawn：记下 id，后续 Spawn/Initial 忽略
-        pendingDestroyIds.Add(id);
+            case NetSpawnDestroyGuard.DestroyDecision.MarkPendingBeforeSpawn:
+                return;
+        }
     }
     #endregion
 
@@ -548,22 +561,16 @@ public partial class NetManager : Singleton<NetManager>
             return;
         }
 
-        ulong mask = 0;
-        int checkCount = Math.Min(vars.Count, 64);
-        for (int i = 0; i < checkCount; i++)
-            if (vars[i].IsDirty) mask |= (1UL << i);
-
+        ulong mask = NetVarMaskUtil.BuildMask(vars.Count, i => vars[i].IsDirty);
         if (mask == 0) return;
 
+        // 只序列化 mask 覆盖的前 64 个变量，与接收端按 bit 读取一致
         List<byte[]> dirtyData = new();
-        foreach (var v in vars)
+        foreach (int i in NetVarMaskUtil.EnumerateDirtyIndices(mask, vars.Count))
         {
-            if (v.IsDirty)
-            {
-                byte[] d = GD.VarToBytes(v.Value);
-                dirtyData.Add(d);
-                v.ClearDirty();
-            }
+            byte[] d = GD.VarToBytes(vars[i].Value);
+            dirtyData.Add(d);
+            vars[i].ClearDirty();
         }
 
         byte[] buffer = new byte[1 + 4 + 8 + (dirtyData.Count * 4) + GetTotalLen(dirtyData)];
@@ -588,22 +595,20 @@ public partial class NetManager : Singleton<NetManager>
             GD.PrintErr($"意外ReadObjStateData obj == null; id: {id}");
             return;
         }
-        ulong mask = BinaryPrimitives.ReadUInt64LittleEndian(content.Slice(4, 8));
         var vars = obj.GetFullStateVars();
-        int pos = 12;
+        if (vars == null || vars.Count == 0) return;
 
-        for (int i = 0; i < vars.Count; i++)
+        ulong mask = BinaryPrimitives.ReadUInt64LittleEndian(content.Slice(4, 8));
+        int pos = 12;
+        foreach (int i in NetVarMaskUtil.EnumerateDirtyIndices(mask, vars.Count))
         {
-            if ((mask & (1UL << i)) != 0)
+            int len = BinaryPrimitives.ReadInt32LittleEndian(content.Slice(pos, 4)); pos += 4;
+            if (!vars[i].authorityIgnore || !obj.HasAuthority())
             {
-                int len = BinaryPrimitives.ReadInt32LittleEndian(content.Slice(pos, 4)); pos += 4;
-                if (!vars[i].authorityIgnore || !obj.HasAuthority())
-                {
-                    vars[i].Value = ReadVariant(content.Slice(pos, len));
-                    vars[i].ClearDirty();
-                }
-                pos += len;
+                vars[i].Value = ReadVariant(content.Slice(pos, len));
+                vars[i].ClearDirty();
             }
+            pos += len;
         }
     }
 
@@ -618,10 +623,7 @@ public partial class NetManager : Singleton<NetManager>
             return;
         }
 
-        ulong mask = 0;
-        for (int i = 0; i < Math.Min(vars.Count, 64); i++)
-            if (vars[i].IsDirty) mask |= (1UL << i);
-
+        ulong mask = NetVarMaskUtil.BuildMask(vars.Count, i => vars[i].IsDirty);
         if (mask == 0) return;
 
         byte[] buffer = new byte[1 + 4 + 8 + 512];
@@ -630,16 +632,13 @@ public partial class NetManager : Singleton<NetManager>
         BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(p, 4), id); p += 4;
         BinaryPrimitives.WriteUInt64LittleEndian(buffer.AsSpan(p, 8), mask); p += 8;
 
-        foreach (var v in vars)
+        foreach (int i in NetVarMaskUtil.EnumerateDirtyIndices(mask, vars.Count))
         {
-            if (v.IsDirty)
-            {
-                byte[] d = GD.VarToBytes(v.Value);
-                if (p + 4 + d.Length > buffer.Length) Array.Resize(ref buffer, buffer.Length * 2);
-                BinaryPrimitives.WriteInt32LittleEndian(buffer.AsSpan(p, 4), d.Length); p += 4;
-                d.CopyTo(buffer.AsSpan(p)); p += d.Length;
-                v.ClearDirty();
-            }
+            byte[] d = GD.VarToBytes(vars[i].Value);
+            if (p + 4 + d.Length > buffer.Length) Array.Resize(ref buffer, buffer.Length * 2);
+            BinaryPrimitives.WriteInt32LittleEndian(buffer.AsSpan(p, 4), d.Length); p += 4;
+            d.CopyTo(buffer.AsSpan(p)); p += d.Length;
+            vars[i].ClearDirty();
         }
         SendPackedToPeer(buffer.AsSpan(0, p), HostId);
     }
@@ -654,18 +653,16 @@ public partial class NetManager : Singleton<NetManager>
             return;
         }
 
-        ulong mask = BinaryPrimitives.ReadUInt64LittleEndian(content.Slice(4, 8));
         var vars = obj.GetInputStateVars();
-        int pos = 12;
+        if (vars == null || vars.Count == 0) return;
 
-        for (int i = 0; i < vars.Count; i++)
+        ulong mask = BinaryPrimitives.ReadUInt64LittleEndian(content.Slice(4, 8));
+        int pos = 12;
+        foreach (int i in NetVarMaskUtil.EnumerateDirtyIndices(mask, vars.Count))
         {
-            if ((mask & (1UL << i)) != 0)
-            {
-                int len = BinaryPrimitives.ReadInt32LittleEndian(content.Slice(pos, 4)); pos += 4;
-                vars[i].Value = ReadVariant(content.Slice(pos, len));
-                pos += len;
-            }
+            int len = BinaryPrimitives.ReadInt32LittleEndian(content.Slice(pos, 4)); pos += 4;
+            vars[i].Value = ReadVariant(content.Slice(pos, len));
+            pos += len;
         }
     }
     #endregion
@@ -813,7 +810,7 @@ public partial class NetManager : Singleton<NetManager>
         byte flagsByte = content[0];
         int pos = 1;
 
-        if (flagsByte == WirePeerTargetMarker)
+        if (NetRouting.IsPeerTarget(flagsByte))
         {
             ulong targetPeerId = BinaryPrimitives.ReadUInt64LittleEndian(content.Slice(pos, 8));
             pos += 8;
@@ -936,7 +933,7 @@ public partial class NetManager : Singleton<NetManager>
         byte flagsByte = content[0];
         int pos = 1;
 
-        if (flagsByte == WirePeerTargetMarker)
+        if (NetRouting.IsPeerTarget(flagsByte))
         {
             ulong targetPeerId = BinaryPrimitives.ReadUInt64LittleEndian(content.Slice(pos, 8));
             pos += 8;
@@ -1026,7 +1023,6 @@ public partial class NetManager : Singleton<NetManager>
         idGenerator.ReleaseId(id);
         objectToId.Remove(obj);
         idToObject.Remove(id);
-        pendingDestroyIds.Remove(id);
     }
     #endregion
 

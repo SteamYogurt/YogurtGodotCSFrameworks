@@ -7,7 +7,9 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="Scene\**" />
+    <Compile Remove="Tests\**" />
     <EmbeddedResource Remove="Scene\**" />
+    <EmbeddedResource Remove="Tests\**" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="CsvHelper" Version="33.1.0" />

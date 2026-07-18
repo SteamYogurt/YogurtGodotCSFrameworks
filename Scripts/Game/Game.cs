@@ -28,7 +28,7 @@ public partial class Game : Node,INetObject
     {
         if (isOnline && TransportManager.Instance?.Current?.AmIHost() == false)
         {
-            GD.PrintErr("错误的AuthorizedNetSpawn调用");
+            GD.PrintErr("错误的AuthorizedNetDestroy调用");
             return;
         }
         if (isOnline)
