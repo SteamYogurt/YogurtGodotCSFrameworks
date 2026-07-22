@@ -72,7 +72,14 @@ CombatRuntime.EndMatch();
 
 `DamageModifierController` / `BuffModifierController` 与各自 CollectSession 基于上述骨架；**语义仍分离**（伤害阶段 vs Buff 多阶段 flags）。
 
-### 3.3 Filter（`UnitCore/Common/Filter`）
+### 3.3 Buff 组合式效果
+
+- `Buff` 资源持有 `BuffInfo` + `Effects[]`（`BuffEffect` 子类）。
+- 行为由 Effect 组合：`StatBuffEffect` / `DotBuffEffect` / `SlowBuffEffect` / `ControlBuffEffect` / `VulnerableBuffEffect` / `ShieldBreakBuffEffect`。
+- `BuffTag` 为 `[Flags]`；匹配语义：Required = 包含全部位，Excluded = 任意重叠。
+- `BuffModifier` 仍负责时长/层数/效果值的 meta 修正，不负责拼行为。
+
+### 3.4 Filter（`UnitCore/Common/Filter`）
 
 `ObjectFilter` / `UnitFilter` / `DamageContextFilter` 为 UnitCore 与 Promotion **共用**，不再放在 PromotionSupport。
 
@@ -127,11 +134,13 @@ Scripts/UnitCore/
     ModifierController, ModifierOwnerStore, ModifierCollectSessionStack
     Stat*, StatChangeConfig, ModifierCollectionUtil
   Damage/            DamageResolver, DamageModifier*, CollectSession
-  Buffs/             Buff*, Modifier/*
+  Buffs/             Buff, BuffInfo(BuffTag flags), BuffInstance, BuffController
+                     Effects/  BuffEffect + Stat/Dot/Slow/Control/Vulnerable/ShieldBreak
+                     Modifier/ BuffModifier*
 
 Scripts/UnitCoreSupport/
   CombatRuntime, MatchContext, CombatRuntimeMatchOptions
-  UnitCoreEvents, DamageFeedback, UnitControl
+  UnitCoreEvents, DamageFeedback, UnitControl (flag refcount)
 
 Scripts/PromotionSupport/
   PromotionEventBus, PromotionUnitCoreBridge

@@ -52,12 +52,12 @@ public partial class BuffModifier : Resource
             return false;
         }
 
-        if (RequiredBuffTag != BuffTag.None && context.BuffTag != RequiredBuffTag)
+        if (RequiredBuffTag != BuffTag.None && !context.BuffTag.HasAll(RequiredBuffTag))
         {
             return false;
         }
 
-        if (ExcludedBuffTag != BuffTag.None && context.BuffTag == ExcludedBuffTag)
+        if (ExcludedBuffTag != BuffTag.None && context.BuffTag.HasAny(ExcludedBuffTag))
         {
             return false;
         }

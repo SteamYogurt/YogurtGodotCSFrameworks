@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using System.IO;
 using Godot;
@@ -18,35 +17,58 @@ public partial class Buff : Resource
 
     public static void LoadFrom(string openPath)
     {
-        if (openPath[openPath.Length - 2] == '_') return;
+        allBuffs.Clear();
+        allBuffsDict.Clear();
+        LoadFromRecursive(openPath);
+    }
+
+    static void LoadFromRecursive(string openPath)
+    {
+        if (openPath.Length >= 2 && openPath[openPath.Length - 2] == '_')
+        {
+            return;
+        }
+
         string[] psArr = ResourceLoader.ListDirectory(openPath);
         foreach (string ps in psArr)
         {
             if (ps[ps.Length - 1] != '/')
             {
-                if (Path.GetExtension(ps) == ".res")
+                string extension = Path.GetExtension(ps);
+                if (extension != ".res" && extension != ".tres")
                 {
-                    if (ps[ps.Length - 5] == '_') continue;
-                    var buff = GD.Load<Buff>(openPath + ps);
-                    buff.buffId = Path.GetFileNameWithoutExtension(ps);
-                    if (buff.buffInfo == null)
-                    {
-                        GD.PrintErr("---------------------");
-                        GD.PrintErr(buff.buffId);
-                        GD.PrintErr("buff.buffInfo == null");
-                        GD.PrintErr("---------------------");
-                    }
-                    else
-                    {
-                        allBuffs.Add(buff);
-                        allBuffsDict.Add(buff.buffId, buff);
-                        GD.Print("加载了buff资源: " + buff.buffId);
-                    }
+                    continue;
+                }
+
+                if (ps.Length >= 5 && ps[ps.Length - 5] == '_')
+                {
+                    continue;
+                }
+
+                var buff = GD.Load<Buff>(openPath + ps);
+                if (buff == null)
+                {
+                    continue;
+                }
+
+                buff.buffId = Path.GetFileNameWithoutExtension(ps);
+                if (buff.buffInfo == null)
+                {
+                    GD.PrintErr("---------------------");
+                    GD.PrintErr(buff.buffId);
+                    GD.PrintErr("buff.buffInfo == null");
+                    GD.PrintErr("---------------------");
+                }
+                else
+                {
+                    allBuffs.Add(buff);
+                    allBuffsDict.Add(buff.buffId, buff);
+                    GD.Print("加载了buff资源: " + buff.buffId);
                 }
             }
             else
             {
-                LoadFrom(openPath + ps);
+                LoadFromRecursive(openPath + ps);
             }
         }
     }
@@ -60,6 +82,9 @@ public partial class Buff : Resource
 
     [Export]
     public BuffInfo buffInfo;
+
+    [Export]
+    public Godot.Collections.Array<BuffEffect> Effects = new();
 
     public static ulong numBId;
 
@@ -79,9 +104,13 @@ public partial class Buff : Resource
 
     public virtual void OnEnter(BuffInstance instance)
     {
+        ForEachEffect(effect => effect.OnEnter(instance));
     }
 
-    public virtual void OnTick(BuffInstance instance, float delta) { }
+    public virtual void OnTick(BuffInstance instance, float delta)
+    {
+        ForEachEffect(effect => effect.OnTick(instance, delta));
+    }
 
     public virtual void OnRefresh(BuffInstance instance, int stacks = 1)
     {
@@ -101,35 +130,53 @@ public partial class Buff : Resource
         }
     }
 
-    public virtual void OnStackChanged(BuffInstance instance) { }
+    public virtual void OnStackChanged(BuffInstance instance)
+    {
+        // Central cleanup so multiple effects can safely re-apply without wiping each other.
+        instance.CleanUpModifiers();
+        instance.CleanUpDamageModifiers();
+        ForEachEffect(effect => effect.OnStackChanged(instance));
+    }
 
     public virtual void OnExit(BuffInstance instance)
     {
+        ForEachEffect(effect => effect.OnExit(instance));
     }
 
-    public string GetBuffName()
+    void ForEachEffect(System.Action<BuffEffect> action)
     {
-        if (buffInfo.overrideBuffName) return Tr(buffInfo.buffName);
-        return null;
-    }
-
-    public virtual string GetBuffDes()
-    {
-        if (buffInfo.overrideBuffDes) return Tr(buffInfo.buffDes);
-        return null;
-    }
-
-    public string GetStackStr()
-    {
-        List<string> parts = new List<string>();
-        if (!buffInfo.infiniteStacks)
+        if (Effects == null || action == null)
         {
-            parts.Add(string.Format(Tr("最大{0}层"), buffInfo.maxStacks));
+            return;
         }
-        if (buffInfo.duration > 0)
+
+        for (int i = 0; i < Effects.Count; i++)
         {
-            parts.Add(string.Format(Tr("持续{0}s"), buffInfo.duration));
+            BuffEffect effect = Effects[i];
+            if (effect != null)
+            {
+                action(effect);
+            }
         }
-        return parts.Count > 0 ? " " + string.Join(",", parts) : string.Empty;
+    }
+
+    public bool TryGetEffect<T>(out T effect) where T : BuffEffect
+    {
+        effect = null;
+        if (Effects == null)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < Effects.Count; i++)
+        {
+            if (Effects[i] is T typed)
+            {
+                effect = typed;
+                return true;
+            }
+        }
+
+        return false;
     }
 }

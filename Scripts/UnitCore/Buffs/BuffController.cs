@@ -143,7 +143,7 @@ public class BuffController
         for (int i = 0; i < _activeBuffs.Count; i++)
         {
             BuffInstance buff = _activeBuffs[i];
-            if (buff?.Data?.buffInfo != null && buff.Data.buffInfo.tag == tag)
+            if (buff?.Data?.buffInfo != null && buff.Data.buffInfo.tag.HasAll(tag))
             {
                 return true;
             }
@@ -163,7 +163,7 @@ public class BuffController
         for (int i = 0; i < _activeBuffs.Count; i++)
         {
             BuffInstance buff = _activeBuffs[i];
-            if (buff?.Data?.buffInfo != null && buff.Data.buffInfo.tag == tag)
+            if (buff?.Data?.buffInfo != null && buff.Data.buffInfo.tag.HasAll(tag))
             {
                 count++;
             }

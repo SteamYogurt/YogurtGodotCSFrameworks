@@ -1,7 +1,7 @@
 using Godot;
 
 [GlobalClass]
-public partial class DoTBuff : Buff
+public partial class DotBuffEffect : BuffEffect
 {
     [Export] public bool IsHealing = false;
     [Export] public bool StackDamage = true;
@@ -13,13 +13,9 @@ public partial class DoTBuff : Buff
 
     [Export] public DoTDamageType DamageType = DoTDamageType.Real;
 
-    public override void OnEnter(BuffInstance instance)
-    {
-    }
-
     public override void OnTick(BuffInstance instance, float delta)
     {
-        float tickInterval = GetTickInterval(instance);
+        float tickInterval = instance.GetResolvedTickInterval();
         instance.TickTimer += delta;
 
         while (instance.TickTimer >= tickInterval)
@@ -78,17 +74,17 @@ public partial class DoTBuff : Buff
         };
 
         damageContext.SetSource(DamageSourceKind.BuffTick, instance);
-        damageContext.AddTags(GetDamageTags());
+        damageContext.AddTags(GetDamageTags(instance));
 
         IUnitExt.ExecuteDamage(damageContext);
     }
 
-    DamageTag GetDamageTags()
+    DamageTag GetDamageTags(BuffInstance instance)
     {
         DamageTag tags = DamageTag.Dot | DamageTag.Buff;
-        if (buffInfo != null)
+        if (instance?.Data?.buffInfo != null)
         {
-            tags |= buffInfo.tag.ToDamageTag();
+            tags |= instance.Data.buffInfo.tag.ToDamageTag();
         }
 
         return tags;
@@ -116,89 +112,6 @@ public partial class DoTBuff : Buff
         };
 
         return Mathf.Max(0f, baseValue * CasterStatScale);
-    }
-
-    float GetTickInterval(BuffInstance instance)
-    {
-        if (instance == null)
-        {
-            return 1f;
-        }
-
-        return instance.GetResolvedTickInterval();
-    }
-
-    public override string GetBuffDes()
-    {
-        var lines = new System.Collections.Generic.List<string>();
-        string stackStr = GetStackStr();
-
-        if (IsHealing)
-        {
-            if (ValueMode == DoTValueMode.FixedValue)
-            {
-                string valueStr = (ValuePerTick / Mathf.Max(0.0001f, buffInfo?.tickInterval ?? 1f)).ToString("0.##");
-                lines.Add(string.Format("{0}{1}{2}",
-                    Tr("每秒治疗"),
-                    valueStr,
-                    stackStr));
-            }
-            else
-            {
-                string scaleStr = FormatPercent(CasterStatScale / Mathf.Max(0.0001f, buffInfo?.tickInterval ?? 1f));
-                lines.Add(string.Format("{0}{1}{2}{3}",
-                    Tr("每秒治疗施加者"),
-                    scaleStr,
-                    Tr(CasterStatType.ToString()),
-                    stackStr));
-            }
-
-            return string.Join("\n", lines);
-        }
-
-        if (ValueMode == DoTValueMode.FixedValue)
-        {
-            string valueStr = (ValuePerTick / Mathf.Max(0.0001f, buffInfo?.tickInterval ?? 1f)).ToString("0.##");
-            lines.Add(string.Format("{0}{1}{2}{3}",
-                Tr("每秒造成"),
-                valueStr,
-                GetDamageTypeName(),
-                Tr("伤害") + stackStr));
-        }
-        else
-        {
-            string scaleStr = FormatPercent(CasterStatScale / Mathf.Max(0.0001f, buffInfo?.tickInterval ?? 1f));
-            lines.Add(string.Format("{0}{1}{2}{3}{4}{5}",
-                Tr("每秒造成施加者"),
-                scaleStr,
-                Tr(CasterStatType.ToString()),
-                Tr("的"),
-                GetDamageTypeName(),
-                Tr("伤害") + stackStr));
-        }
-
-        return string.Join("\n", lines);
-    }
-
-    string GetDamageTypeName()
-    {
-        return DamageType switch
-        {
-            DoTDamageType.Physical => Tr("物理"),
-            DoTDamageType.Magical => Tr("魔法"),
-            _ => Tr("真实"),
-        };
-    }
-
-    string FormatPercent(float value)
-    {
-        float percent = value * 100f;
-        if (Mathf.Abs(percent) < 10f)
-        {
-            return percent.ToString("0.#") + "%";
-        }
-
-        return percent.ToString("0.##") + "%";
     }
 }
 

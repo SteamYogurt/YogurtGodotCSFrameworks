@@ -170,12 +170,22 @@ public static class DamageTagExt
 {
     public static DamageTag ToDamageTag(this BuffTag buffTag)
     {
-        return buffTag switch
+        DamageTag tags = DamageTag.None;
+        if ((buffTag & BuffTag.Flame) != 0)
         {
-            BuffTag.Flame => DamageTag.Flame,
-            BuffTag.Poison => DamageTag.Poison,
-            BuffTag.Cold => DamageTag.Cold,
-            _ => DamageTag.None,
-        };
+            tags |= DamageTag.Flame;
+        }
+
+        if ((buffTag & BuffTag.Poison) != 0)
+        {
+            tags |= DamageTag.Poison;
+        }
+
+        if ((buffTag & BuffTag.Cold) != 0)
+        {
+            tags |= DamageTag.Cold;
+        }
+
+        return tags;
     }
 }

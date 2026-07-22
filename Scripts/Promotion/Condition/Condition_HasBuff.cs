@@ -19,14 +19,19 @@ public partial class Condition_HasBuff : Condition
             return false;
         }
 
-        if (!string.IsNullOrWhiteSpace(requiredBuffId)
-            && !unit.BuffController.HasBuff(requiredBuffId))
+        bool hasIdRequirement = !string.IsNullOrWhiteSpace(requiredBuffId);
+        bool hasTagRequirement = requiredBuffTag != BuffTag.None;
+        if (!hasIdRequirement && !hasTagRequirement)
         {
             return false;
         }
 
-        if (requiredBuffTag != BuffTag.None
-            && !unit.BuffController.HasBuffTag(requiredBuffTag))
+        if (hasIdRequirement && !unit.BuffController.HasBuff(requiredBuffId))
+        {
+            return false;
+        }
+
+        if (hasTagRequirement && !unit.BuffController.HasBuffTag(requiredBuffTag))
         {
             return false;
         }

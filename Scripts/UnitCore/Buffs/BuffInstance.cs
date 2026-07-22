@@ -33,9 +33,10 @@ public class BuffInstance
         Data = data;
         Owner = owner;
         Caster = caster;
-        Stacks = stacks;
+        Stacks = Mathf.Max(1, stacks);
 
         RefreshResolvedBuffValues();
+        ClampStacksToResolvedMax();
         DurationTimer = ResolvedDuration;
     }
 
@@ -64,11 +65,34 @@ public class BuffInstance
         BuffModifierResolver.RefreshRuntimeValues(this);
     }
 
+    public void ClampStacksToResolvedMax()
+    {
+        if (Data?.buffInfo == null || Data.buffInfo.infiniteStacks)
+        {
+            Stacks = Mathf.Max(1, Stacks);
+            return;
+        }
+
+        Stacks = Mathf.Clamp(Stacks, 1, GetResolvedMaxStacks());
+    }
+
     public float GetResolvedDuration() => ResolvedDuration;
 
     public float GetResolvedTickInterval() => Mathf.Max(0.0001f, ResolvedTickInterval);
 
     public int GetResolvedMaxStacks() => Mathf.Max(1, ResolvedMaxStacks);
+
+    /// <summary>base + extra * (stacks - 1)</summary>
+    public float ResolveStackedValue(float baseValue, float extraPerStack)
+    {
+        int extraStacks = Stacks - 1;
+        if (extraStacks < 0)
+        {
+            extraStacks = 0;
+        }
+
+        return baseValue + extraPerStack * extraStacks;
+    }
 
     public float ResolveEffectValue(float baseValue)
     {

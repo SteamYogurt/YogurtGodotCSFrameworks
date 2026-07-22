@@ -1,5 +1,5 @@
-using Godot;
 using System;
+using Godot;
 
 [GlobalClass]
 public partial class BuffInfo : Resource
@@ -7,7 +7,7 @@ public partial class BuffInfo : Resource
     [Export]
     public float duration = 5f; // -1 代表永久
     [Export]
-    public float tickInterval = 1f; // 间隔多久触发一次 OnTick
+    public float tickInterval = 1f;
     [Export]
     public bool infiniteStacks = false;
     [Export]
@@ -23,22 +23,31 @@ public partial class BuffInfo : Resource
     [Export]
     public int visualPriority = 0;
     [Export]
-    public string buffName;
-    [Export]
-    public string buffDes;
-    [Export]
-    public bool overrideBuffName;
-    [Export]
-    public bool overrideBuffDes;
-    [Export]
     public BuffTag tag;
 }
+
+[Flags]
 public enum BuffTag
 {
-    None,
-    Cold,
-    Poison,
-    Flame,
-    Stun,
-    Vulnerable,
+    None = 0,
+    Cold = 1 << 0,
+    Poison = 1 << 1,
+    Flame = 1 << 2,
+    Stun = 1 << 3,
+    Vulnerable = 1 << 4,
+}
+
+public static class BuffTagExt
+{
+    /// <summary>tags 是否包含 required 的全部位。</summary>
+    public static bool HasAll(this BuffTag tags, BuffTag required)
+    {
+        return required == BuffTag.None || (tags & required) == required;
+    }
+
+    /// <summary>tags 是否与 query 有任意重叠位。</summary>
+    public static bool HasAny(this BuffTag tags, BuffTag query)
+    {
+        return query != BuffTag.None && (tags & query) != 0;
+    }
 }
