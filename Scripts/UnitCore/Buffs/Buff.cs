@@ -1,182 +1,118 @@
-using System.Collections.Generic;
-using System.IO;
 using Godot;
 
 [GlobalClass]
 public partial class Buff : Resource
 {
-    public static List<Buff> allBuffs = new List<Buff>();
-    public static System.Collections.Generic.Dictionary<StringName, Buff> allBuffsDict
-        = new System.Collections.Generic.Dictionary<StringName, Buff>();
-    public static uint numID = 0;
+	[Export]
+	public BuffInfo buffInfo;
 
-    public static void BuffInit(string path = "res://Data/Buff/")
-    {
-        LoadFrom(path);
-    }
+	[Export]
+	public Godot.Collections.Array<BuffEffect> Effects = new();
 
-    public static void LoadFrom(string openPath)
-    {
-        allBuffs.Clear();
-        allBuffsDict.Clear();
-        LoadFromRecursive(openPath);
-    }
+	public static ulong numBId;
 
-    static void LoadFromRecursive(string openPath)
-    {
-        if (openPath.Length >= 2 && openPath[openPath.Length - 2] == '_')
-        {
-            return;
-        }
+	public StringName BuffID
+	{
+		get
+		{
+			if (buffId == null)
+			{
+				buffId = (++numBId).ToString();
+			}
+			return buffId;
+		}
+	}
 
-        string[] psArr = ResourceLoader.ListDirectory(openPath);
-        foreach (string ps in psArr)
-        {
-            if (ps[ps.Length - 1] != '/')
-            {
-                string extension = Path.GetExtension(ps);
-                if (extension != ".res" && extension != ".tres")
-                {
-                    continue;
-                }
+	StringName buffId;
 
-                if (ps.Length >= 5 && ps[ps.Length - 5] == '_')
-                {
-                    continue;
-                }
+	/// <summary>Called by <see cref="BuffExt"/> when loading a catalog asset.</summary>
+	public void BindCatalogId(StringName id)
+	{
+		buffId = id;
+	}
 
-                var buff = GD.Load<Buff>(openPath + ps);
-                if (buff == null)
-                {
-                    continue;
-                }
+	public Buff GetCopy()
+	{
+		var copy = Duplicate() as Buff;
+		copy.buffId = BuffID;
+		return copy;
+	}
 
-                buff.buffId = Path.GetFileNameWithoutExtension(ps);
-                if (buff.buffInfo == null)
-                {
-                    GD.PrintErr("---------------------");
-                    GD.PrintErr(buff.buffId);
-                    GD.PrintErr("buff.buffInfo == null");
-                    GD.PrintErr("---------------------");
-                }
-                else
-                {
-                    allBuffs.Add(buff);
-                    allBuffsDict.Add(buff.buffId, buff);
-                    GD.Print("加载了buff资源: " + buff.buffId);
-                }
-            }
-            else
-            {
-                LoadFromRecursive(openPath + ps);
-            }
-        }
-    }
+	public virtual void OnEnter(BuffInstance instance)
+	{
+		ForEachEffect(effect => effect.OnEnter(instance));
+	}
 
-    public Buff GetCopy()
-    {
-        var copy = this.Duplicate() as Buff;
-        copy.buffId = this.BuffID;
-        return copy;
-    }
+	public virtual void OnTick(BuffInstance instance, float delta)
+	{
+		ForEachEffect(effect => effect.OnTick(instance, delta));
+	}
 
-    [Export]
-    public BuffInfo buffInfo;
+	public virtual void OnRefresh(BuffInstance instance, int stacks = 1)
+	{
+		instance.RefreshResolvedBuffValues();
+		instance.DurationTimer = instance.GetResolvedDuration();
 
-    [Export]
-    public Godot.Collections.Array<BuffEffect> Effects = new();
+		int maxStacks = instance.GetResolvedMaxStacks();
+		if (buffInfo.infiniteStacks || instance.Stacks < maxStacks)
+		{
+			instance.Stacks += stacks;
+			if (!buffInfo.infiniteStacks && instance.Stacks > maxStacks)
+			{
+				instance.Stacks = maxStacks;
+			}
 
-    public static ulong numBId;
+			OnStackChanged(instance);
+		}
+	}
 
-    public StringName BuffID
-    {
-        get
-        {
-            if (buffId == null)
-            {
-                buffId = (++numBId).ToString();
-            }
-            return buffId;
-        }
-    }
+	public virtual void OnStackChanged(BuffInstance instance)
+	{
+		// Central cleanup so multiple effects can safely re-apply without wiping each other.
+		instance.CleanUpModifiers();
+		instance.CleanUpDamageModifiers();
+		ForEachEffect(effect => effect.OnStackChanged(instance));
+	}
 
-    StringName buffId;
+	public virtual void OnExit(BuffInstance instance)
+	{
+		ForEachEffect(effect => effect.OnExit(instance));
+	}
 
-    public virtual void OnEnter(BuffInstance instance)
-    {
-        ForEachEffect(effect => effect.OnEnter(instance));
-    }
+	void ForEachEffect(System.Action<BuffEffect> action)
+	{
+		if (Effects == null || action == null)
+		{
+			return;
+		}
 
-    public virtual void OnTick(BuffInstance instance, float delta)
-    {
-        ForEachEffect(effect => effect.OnTick(instance, delta));
-    }
+		for (int i = 0; i < Effects.Count; i++)
+		{
+			BuffEffect effect = Effects[i];
+			if (effect != null)
+			{
+				action(effect);
+			}
+		}
+	}
 
-    public virtual void OnRefresh(BuffInstance instance, int stacks = 1)
-    {
-        instance.RefreshResolvedBuffValues();
-        instance.DurationTimer = instance.GetResolvedDuration();
+	public bool TryGetEffect<T>(out T effect) where T : BuffEffect
+	{
+		effect = null;
+		if (Effects == null)
+		{
+			return false;
+		}
 
-        int maxStacks = instance.GetResolvedMaxStacks();
-        if (buffInfo.infiniteStacks || instance.Stacks < maxStacks)
-        {
-            instance.Stacks += stacks;
-            if (!buffInfo.infiniteStacks && instance.Stacks > maxStacks)
-            {
-                instance.Stacks = maxStacks;
-            }
+		for (int i = 0; i < Effects.Count; i++)
+		{
+			if (Effects[i] is T typed)
+			{
+				effect = typed;
+				return true;
+			}
+		}
 
-            OnStackChanged(instance);
-        }
-    }
-
-    public virtual void OnStackChanged(BuffInstance instance)
-    {
-        // Central cleanup so multiple effects can safely re-apply without wiping each other.
-        instance.CleanUpModifiers();
-        instance.CleanUpDamageModifiers();
-        ForEachEffect(effect => effect.OnStackChanged(instance));
-    }
-
-    public virtual void OnExit(BuffInstance instance)
-    {
-        ForEachEffect(effect => effect.OnExit(instance));
-    }
-
-    void ForEachEffect(System.Action<BuffEffect> action)
-    {
-        if (Effects == null || action == null)
-        {
-            return;
-        }
-
-        for (int i = 0; i < Effects.Count; i++)
-        {
-            BuffEffect effect = Effects[i];
-            if (effect != null)
-            {
-                action(effect);
-            }
-        }
-    }
-
-    public bool TryGetEffect<T>(out T effect) where T : BuffEffect
-    {
-        effect = null;
-        if (Effects == null)
-        {
-            return false;
-        }
-
-        for (int i = 0; i < Effects.Count; i++)
-        {
-            if (Effects[i] is T typed)
-            {
-                effect = typed;
-                return true;
-            }
-        }
-
-        return false;
-    }
+		return false;
+	}
 }

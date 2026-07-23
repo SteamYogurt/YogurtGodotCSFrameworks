@@ -26,7 +26,7 @@ public static class CombatRuntime
 		MatchContext match = new MatchContext(options);
 		if (options != null && !string.IsNullOrEmpty(options.BuffResourceRootPath))
 		{
-			Buff.LoadFrom(options.BuffResourceRootPath);
+			BuffExt.Init(options.BuffResourceRootPath);
 		}
 
 		DamageFeedback.SpawnText = options?.SpawnDamageText;

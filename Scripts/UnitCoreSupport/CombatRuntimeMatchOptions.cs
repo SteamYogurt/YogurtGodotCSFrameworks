@@ -17,6 +17,6 @@ public sealed class CombatRuntimeMatchOptions
 	/// <summary>World VFX at a position (e.g. promotion AOE sparkle).</summary>
 	public Action<string, Vector3> SpawnEffectAtPosition { get; set; }
 
-	/// <summary>If set, calls <see cref="Buff.LoadFrom"/> on match start.</summary>
+	/// <summary>If set, calls <see cref="BuffExt.Init"/> on match start (path scan; lazy load).</summary>
 	public string BuffResourceRootPath { get; set; }
 }
