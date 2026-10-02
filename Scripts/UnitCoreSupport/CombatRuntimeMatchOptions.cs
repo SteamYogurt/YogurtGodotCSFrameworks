@@ -11,7 +11,7 @@ public sealed class CombatRuntimeMatchOptions
 	/// <summary>All units that promotion effects may target (stat/damage modifiers, etc.).</summary>
 	public Func<IEnumerable<IUnit>> ActiveUnits { get; set; }
 
-	/// <summary>Floating damage text or other presentation.</summary>
+	/// <summary>Floating damage text or other presentation. Stored on the match.</summary>
 	public Action<DamageContext> SpawnDamageText { get; set; }
 
 	/// <summary>World VFX at a position (e.g. promotion AOE sparkle).</summary>
@@ -19,4 +19,7 @@ public sealed class CombatRuntimeMatchOptions
 
 	/// <summary>If set, calls <see cref="BuffExt.Init"/> on match start (path scan; lazy load).</summary>
 	public string BuffResourceRootPath { get; set; }
+
+	/// <summary>If set, calls <see cref="PromotionExt.Init"/> on match start. The catalog is not cleared on end.</summary>
+	public string PromotionResourceRootPath { get; set; }
 }

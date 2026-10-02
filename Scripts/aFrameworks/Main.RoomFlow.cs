@@ -70,14 +70,19 @@ public partial class Main
             return;
 
         lanDiscoveryService?.StopAll();
-        waitingPanel?.Hide();
+        UIManager.Instance.HideWaiting();
         StopObservingTransport();
         NetManager.Instance.Start();
         if (request.DisplayType == ENetLobbyDisplayType.Steam)
         {
             TransportManager.Instance.UseSteam();
             if (TransportManager.Instance.Current is SteamTransport steamTransport)
-                steamTransport.PendingCreateMaxPlayers = Mathf.Max(request.Context?.MaxPlayers ?? 4, 1);
+            {
+                var context = OnlineRoomContextApply.Normalize(request.Context, request.DisplayType);
+                request.Context = context;
+                steamTransport.PendingCreateMaxPlayers = context.MaxPlayers;
+                steamTransport.PendingCreateLobbyType = SteamManager.ToSteamLobbyType(context.Visibility);
+            }
         }
         else
         {
@@ -127,11 +132,7 @@ public partial class Main
             var request = currentRoomFlowRequest;
             var context = request.Context;
 
-            if (request.DisplayType == ENetLobbyDisplayType.Lan)
-                lanDiscoveryService?.StartHosting(context.RoomName);
-            else
-                SteamManager.Instance?.ApplyCurrentLobbyMetadata(context);
-
+            OnlineRoomContextApply.ApplyAfterRoomCreated(context, request.DisplayType);
             CreateOnlineGame(context);
             currentRoomFlowRequest = null;
             return;

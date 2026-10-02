@@ -17,9 +17,13 @@
   </ItemGroup>
   <ItemGroup>
     <None Include=".github\copilot-instructions.md" />
-    <None Include="Docs\mainui-network-lobby.md" />
-    <None Include="docs\network-core-overview.md" />
-    <None Include="docs\unit-core-promotion-architecture.md" />
+    <None Include="AGENTS.md" />
+    <None Include="docs\agent\README.md" />
+    <None Include="docs\agent\net.md" />
+    <None Include="docs\agent\lobby.md" />
+    <None Include="docs\agent\unit-core.md" />
+    <None Include="docs\agent\promotion.md" />
+    <None Include="docs\agent\object.md" />
     <None Include="steam_api64.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

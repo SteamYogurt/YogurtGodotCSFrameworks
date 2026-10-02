@@ -20,5 +20,7 @@
     <Compile Include="..\..\Scripts\aFrameworks\Net\NetRouting.cs" Link="Shared\NetRouting.cs" />
     <Compile Include="..\..\Scripts\aFrameworks\Net\NetSpawnDestroyGuard.cs" Link="Shared\NetSpawnDestroyGuard.cs" />
     <Compile Include="..\..\Scripts\aFrameworks\Net\NetVarMaskUtil.cs" Link="Shared\NetVarMaskUtil.cs" />
+    <Compile Include="..\..\Scripts\aFrameworks\Net\NetSyncScope.cs" Link="Shared\NetSyncScope.cs" />
+    <Compile Include="..\..\Scripts\aFrameworks\Net\NetSyncSelectUtil.cs" Link="Shared\NetSyncSelectUtil.cs" />
   </ItemGroup>
 </Project>

@@ -98,16 +98,21 @@ public partial class TransportManager : Singleton<TransportManager>
     {
         Current?.Poll();
     }
+    public event Action Kicked;
+
     public void OnEvent(string @event)
     {
-        if(Current != null && @event == "Kick")
-        {
-            //Current.LeaveRoom();
-            Game.TryFreeGameAndReturn("Kicked or Started");
-        }
+        if (Current != null && @event == "Kick")
+            Kicked?.Invoke();
     }
+
     public void HostKick(ulong id)
     {
+        if (id == 0 || Current == null || !Current.AmIHost())
+            return;
+        if (id == Current.LocalID)
+            return;
 
+        NetManager.Instance?.SendEventToPeer(id, "Kick");
     }
 }

@@ -46,6 +46,7 @@ public partial class Player : Node, INetObject
     }
 
     public bool IsLocal => hasAuthority;
+    public NetSyncScope NetSyncScope => global::NetSyncScope.Session;
     public void HostInitialize()
     {
 

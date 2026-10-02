@@ -19,6 +19,8 @@ public sealed class MatchContext : IDisposable
 
 	public Func<IEnumerable<IUnit>> ActiveUnits { get; set; }
 
+	public Action<DamageContext> SpawnDamageText { get; set; }
+
 	public Action<string, Vector3> SpawnEffectAtPosition { get; set; }
 
 	public IReadOnlyList<PromotionInstance> ActivePromotions => activeInstances;
@@ -33,7 +35,20 @@ public sealed class MatchContext : IDisposable
 		}
 
 		ActiveUnits = options.ActiveUnits;
+		SpawnDamageText = options.SpawnDamageText;
 		SpawnEffectAtPosition = options.SpawnEffectAtPosition;
+	}
+
+	/// <summary>
+	/// Clears process-wide combat scratch: damage events, modifier tables, and rented condition contexts.
+	/// Called from <see cref="Dispose"/> and once at the start of <see cref="CombatRuntime.BeginMatch"/>.
+	/// </summary>
+	internal static void ClearProcessScratch()
+	{
+		UnitCoreEvents.Reset();
+		DamageModifierOwnerExt.ResetAllDamageModifierControllers();
+		BuffModifierOwnerExt.ResetAllBuffModifierControllers();
+		ConditionContext.ClearPool();
 	}
 
 	internal void Activate()
@@ -164,6 +179,8 @@ public sealed class MatchContext : IDisposable
 		activated = false;
 
 		ActiveUnits = null;
+		SpawnDamageText = null;
 		SpawnEffectAtPosition = null;
+		ClearProcessScratch();
 	}
 }

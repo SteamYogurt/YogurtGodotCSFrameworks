@@ -142,8 +142,7 @@ public partial class MainLobbyPanel : Control
 
     void OnSteamLobbyListUpdated(IReadOnlyList<SteamLobbyRoomInfo> rooms)
     {
-        RenderRooms(rooms, room => room.LobbyId.ToString(), room => room.RoomName,
-            room => FormatDetail(room.PlayerCount, room.MemberLimit, room.Joinable), room => room.Joinable);
+        RenderEntries(ToEntries(rooms, OnlineRoomListing.FromSteam));
     }
 
     void OnLanRoomsChanged()
@@ -153,8 +152,26 @@ public partial class MainLobbyPanel : Control
 
     void RenderLanRooms(IReadOnlyList<LanDiscoveredRoomInfo> rooms)
     {
-        RenderRooms(rooms, room => room.HostAddress, room => room.RoomName,
-            room => FormatDetail(room.PlayerCount, 0, room.Joinable), room => room.Joinable);
+        RenderEntries(ToEntries(rooms, OnlineRoomListing.FromLan));
+    }
+
+    static List<OnlineRoomListEntry> ToEntries<T>(IReadOnlyList<T> rooms, Func<T, OnlineRoomListEntry> map)
+    {
+        var entries = new List<OnlineRoomListEntry>();
+        if (rooms == null)
+            return entries;
+        for (int i = 0; i < rooms.Count; i++)
+        {
+            var entry = map(rooms[i]);
+            if (entry != null)
+                entries.Add(entry);
+        }
+        return entries;
+    }
+
+    void RenderEntries(IReadOnlyList<OnlineRoomListEntry> rooms)
+    {
+        RenderRooms(rooms, room => room.RoomId, room => room.RoomName, FormatDetail, room => room.CanJoin);
     }
 
     void RenderRooms<T>(IReadOnlyList<T> rooms, Func<T, string> getRoomId, Func<T, string> getRoomName,
@@ -184,10 +201,14 @@ public partial class MainLobbyPanel : Control
             OnRoomItemSelected(roomItems[0]);
     }
 
-    string FormatDetail(int playerCount, int memberLimit, bool joinable)
+    string FormatDetail(OnlineRoomListEntry room)
     {
-        string countText = memberLimit > 0 ? $"人数: {playerCount}/{memberLimit}" : $"人数: {playerCount}";
-        return joinable ? countText : $"{countText} | 不可加入";
+        string countText = room.MemberLimit > 0
+            ? $"人数: {room.PlayerCount}/{room.MemberLimit}"
+            : $"人数: {room.PlayerCount}";
+        if (room.InMatch)
+            countText += " | 对局中";
+        return room.CanJoin ? countText : $"{countText} | 不可加入";
     }
 
     void ClearRoomItems()

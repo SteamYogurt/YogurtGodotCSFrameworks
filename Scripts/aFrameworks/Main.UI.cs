@@ -4,16 +4,13 @@ public partial class Main
 {
     public void AddUI(Node control)
     {
-        uiLayer.AddChild(control);
-        if (settings != null)
-            uiLayer.MoveChild(settings, uiLayer.GetChildCount() - 1);
+        UIManager.Instance.Add(control);
     }
 
     public void ResetAndReturnToMenu()
     {
         currentRoomFlowRequest = null;
         Game.PendingOnlineContext = null;
-        ClearAllUnimportantUI();
         StopObservingTransport();
         TransportManager.Instance.Deactivate();
         NetManager.Instance.Deactivate();
@@ -22,33 +19,36 @@ public partial class Main
             Game.instance.QueueFree();
         }
         lanDiscoveryService?.StopAll();
-        waitingPanel?.Hide();
-        LoadMenu();
+        UIManager.Instance.ShowMenu();
     }
 
     public void ClearAllUnimportantUI()
     {
-        foreach (var ui in uiLayer.GetChildren())
-        {
-            if (!importantUIList.Contains(ui)) ui.QueueFree();
-        }
+        UIManager.Instance.ClearTransient();
     }
 
     public void LoadMenu()
     {
-        var menu = Global.GetObj<Control>("res://Scene/UI/Main/Menu.tscn");
-        AddUI(menu);
+        UIManager.Instance.ShowMenu();
     }
 
     public void OpenLobbyPanel(ENetLobbyDisplayType displayType)
     {
-        var panel = Global.GetObj<MainLobbyPanel>("res://Scene/UI/Main/MainLobbyPanel.tscn");
-        panel.DisplayType = displayType;
-        AddUI(panel);
+        UIManager.Instance.OpenLobby(displayType);
     }
 
     public void ShowWaitingPanel()
     {
-        waitingPanel?.Show();
+        UIManager.Instance.ShowWaiting();
+    }
+
+    public void PlayTransition(bool forward)
+    {
+        UIManager.Instance.PlayTransition(forward);
+    }
+
+    void OnKicked()
+    {
+        Game.TryFreeGameAndReturn("Kicked or Started");
     }
 }

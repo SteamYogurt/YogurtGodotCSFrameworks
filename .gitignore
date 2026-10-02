@@ -9,3 +9,7 @@ obj/
 *.csproj.user
 *.sln
 .vs/
+
+# Agent tool drafts
+Tools/**/tmp/**
+!Tools/**/tmp/.gitkeep

@@ -1,20 +1,20 @@
-using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Security.AccessControl;
-using System.Security.Principal;
 using Godot;
 
 public partial class ObjectPoolManager : Singleton<ObjectPoolManager>
 {
+    public const string PooledRoot = "res://Assets/Objs/aPooledObjs/";
+    public const string LazyRoot = "res://Assets/Objs/bLazyObjs/";
+
     public Dictionary<string, ObjectPool> pooledObjectPoolsDict = new Dictionary<string, ObjectPool>(128);
     public Dictionary<string, string> lazyObjectsDict = new Dictionary<string, string>(128);
     public Dictionary<string, ObjectPool> tempPooledObjectPoolsDict = new Dictionary<string, ObjectPool>(16);
     public override void _EnterTree()
     {
         base._EnterTree();
-        LoadPooled("res://Assets/Objs/aPooledObjs/");
-        LoadLazy("res://Assets/Objs/bLazyObjs/");
+        LoadPooled(PooledRoot);
+        LoadLazy(LazyRoot);
     }
 
     void LoadPooled(string openPath)
@@ -61,6 +61,8 @@ public partial class ObjectPoolManager : Singleton<ObjectPoolManager>
             }
         }
     }
+    public static bool Exists(string objectName) => ExistPossibleObject(objectName);
+
     public static bool ExistPossibleObject(string objectName)
     {
         if(!Instance.pooledObjectPoolsDict.ContainsKey(objectName) && !Instance.lazyObjectsDict.ContainsKey(objectName))
@@ -144,20 +146,61 @@ public partial class ObjectPoolManager : Singleton<ObjectPoolManager>
             GD.PrintErr($"无法找到对应的Possible对象池:{objectName}");
         return pool2;
     }
-    public static T GetPossibleObject<T>(string objectName) where T : IGameObject
+    public static T Spawn<T>(string objectName) where T : IGameObject
     {
         if (Instance.pooledObjectPoolsDict.TryGetValue(objectName, out var pool))
         {
-            IGameObject obj = pool.GetObject<T>();
-            return (T)obj;
+            return pool.GetObject<T>();
         }
         if (Instance.lazyObjectsDict.ContainsKey(objectName))
         {
-            return GetTempObjectPool(objectName).GetObject<T>();
+            ObjectPool lazyPool = GetTempObjectPool(objectName);
+            if (lazyPool == null)
+            {
+                return default;
+            }
+            return lazyPool.GetObject<T>();
         }
         GD.PrintErr($"无法找到对应的对象池:{objectName}");
-        return default(T);
+        return default;
     }
+
+    public static void Release(IGameObject obj)
+    {
+        if (obj == null)
+        {
+            return;
+        }
+
+        ObjectPool owned = obj.Info?.Pool;
+        if (owned != null)
+        {
+            owned.ReturnObjectToPool(obj);
+            return;
+        }
+
+        string name = obj.Info?.ObjectName;
+        if (string.IsNullOrEmpty(name))
+        {
+            GD.PrintErr("返回时对象没有名字，无法找到对象池");
+            return;
+        }
+
+        if (Instance.pooledObjectPoolsDict.TryGetValue(name, out ObjectPool pool))
+        {
+            pool.ReturnObjectToPool(obj);
+            return;
+        }
+        if (Instance.tempPooledObjectPoolsDict.TryGetValue(name, out ObjectPool tempPool))
+        {
+            tempPool.ReturnObjectToPool(obj);
+            return;
+        }
+        GD.PrintErr($"返回时无法找到对应的对象池:{name}");
+    }
+
+    public static T GetPossibleObject<T>(string objectName) where T : IGameObject
+        => Spawn<T>(objectName);
     public static T GetObject<T>(string objectName) where T : IGameObject
     {
         if (Instance.pooledObjectPoolsDict.TryGetValue(objectName, out var pool))
@@ -172,11 +215,10 @@ public partial class ObjectPoolManager : Singleton<ObjectPoolManager>
     {
         if (Instance.pooledObjectPoolsDict.TryGetValue(objectName, out var pool))
         {
-            IGameObject obj = pool.GetObject<T>();
-            return (T)obj;
+            return pool.GetObjectReadOnly<T>();
         }
         GD.PrintErr($"无法找到对应的对象池:{objectName}");
-        return default(T);
+        return default;
     }
     public static T[] GetObjects<T>(string objectName, int count) where T : IGameObject
     {
@@ -205,21 +247,7 @@ public partial class ObjectPoolManager : Singleton<ObjectPoolManager>
         GD.PrintErr($"无法找到对应的对象池:{objectName}");
         return null;
     }
-    public static void ReturnObjectToPool(IGameObject obj)
-    {
-        var name = new StringName(obj.Info.ObjectName);
-        if (Instance.pooledObjectPoolsDict.TryGetValue(name, out var pool))
-        {
-            pool.ReturnObjectToPool(obj);
-            return;
-        }
-        if (Instance.tempPooledObjectPoolsDict.TryGetValue(name,out var pool1))
-        {
-            pool1.ReturnObjectToPool(obj);
-            return;
-        }
-        GD.PrintErr($"返回时无法找到对应的对象池:{obj.Info.ObjectName}");
-    }
+    public static void ReturnObjectToPool(IGameObject obj) => Release(obj);
     public static List<T> GetAllReadOnly<T>() where T : IGameObject
     {
         List<T> list = new List<T>();

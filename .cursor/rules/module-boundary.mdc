@@ -1,0 +1,16 @@
+---
+description: 套件按模块隔离，示例不得倒灌进核心
+alwaysApply: true
+---
+
+# 模块边界
+
+每个套件目录自包含。后续项目只打开一份 `docs/agent/<模块>.md` 就能知道路径、依赖方向和扩展点。
+
+- `Net` 不知道 `Game` / `Player` / `Match`。同步域用 `INetObject.NetSyncScope`，对局准入用 `NetMatchAdmission.CollectRemotePeers`，房间快照用 `NetRoomPresenceSource.Read`。
+- `UIManager` 管 `Main` 的界面层，不引用 `Game`。会话根仍由 `Main` 的房间流程生成。
+- `UnitCore` 只依赖 `IUnit` 与通用类型。游戏特化留在游戏项目。
+- `Promotion` 通过 `MatchContext` 接入，不直接找场景节点。
+- `Player` 在 `Scripts/Game`。身份、就绪、离线槽位属于示例，不属于传输层。
+- 有对局流的项目：把会话根标成 `NetSyncScope.Session` 且 `MidJoinSyncPriority = SessionRoot`，对局对象保持默认 `Match`，并注册准入名单。
+- 房间列表的游戏 id 是 `OnlineRoomListing.GameId`。新项目改这一处，不要在 Steam / LAN 各写一套键。

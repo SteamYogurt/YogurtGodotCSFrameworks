@@ -14,6 +14,16 @@ public interface INetObject : IGameObject
         return false;
     }
 
+    /// <summary>
+    /// 中途加入快照发送优先级；数值越大越先发送。默认 0。
+    /// </summary>
+    public int MidJoinSyncPriority => NetMidJoinSyncPriority.Default;
+
+    /// <summary>
+    /// 同步域。默认 <see cref="NetSyncScope.Match"/>；会话根 / Player 应标 <see cref="NetSyncScope.Session"/>。
+    /// </summary>
+    public NetSyncScope NetSyncScope => global::NetSyncScope.Match;
+
     public List<NetVar> GetInputStateVars();
     public List<NetVar> GetFullStateVars();
     public NetRPCTable GetNetRPCTable();

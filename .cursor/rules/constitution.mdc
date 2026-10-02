@@ -1,0 +1,18 @@
+---
+description: 仓库宪法：C# 套件、目录边界、Agent 停检点
+alwaysApply: true
+---
+
+# 宪法
+
+C# / Godot 4.7。细则见根目录 `AGENTS.md`。
+
+- 套件代码在 `Scripts/aFrameworks/Net`、`Scripts/UnitCore`、`Scripts/UnitCoreSupport`、`Scripts/Promotion`、`Scripts/PromotionSupport`，以及 `Scripts/aFrameworks/Input`、`Resource`、`Steam`、`Object`。
+- `Scripts/aFrameworks/UI` 是壳的界面层，跟 `Main` 一起用。它可以打开 `MainUI` 里的大厅场景，不引用 `Game`。
+- `Scripts/Game`、`Scripts/MainUI`、`Scripts/Temp`、`AATest` 是示例或草稿。
+- 套件核心不得引用 `Scripts/Game` 或 `Scripts/Temp`。会话状态经 `NetRoomPresenceSource` / `NetMatchAdmission` 交给网络层。
+- 联机：一个连接一个本地玩家。`LocalSlotIndex` 只用于离线，不要做成网络字段。
+- 新文件按模块分夹，不要平铺在目录根。
+- 草稿只进 `Tools/<工具>/tmp/`。运行时代码不引用 `Tools/`。
+- 出图走 `bailian-cli` skill，出模走 `tripo-cli` skill。不要手拼百炼 / Tripo HTTP。
+- 改路径、同步域、房间列表键或禁止项时，同步 `docs/agent/` 与本规则。

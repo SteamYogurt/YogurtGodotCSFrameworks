@@ -12,6 +12,12 @@ public class NetRPCTable
 
     public void Register(byte rpcId, Action<Variant[]> handler)
     {
+        if (_handlers.ContainsKey(rpcId))
+        {
+            GD.PrintErr($"NetRPCTable.Register: rpcId={rpcId} 已注册，禁止覆盖");
+            throw new InvalidOperationException($"NetRPCTable rpcId {rpcId} already registered");
+        }
+
         _handlers[rpcId] = handler;
     }
 

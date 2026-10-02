@@ -40,6 +40,7 @@ public partial class NetManager : Singleton<NetManager>
 
     private int pingIntervalTick = 0;
     public long AvgRTT { get; private set; }
+    public bool HasRttSample { get; private set; }
 
     public Action<string> EventCb = (_) => { };
     public Action<string, ulong> EventWithSenderCb = (_, __) => { };
@@ -62,6 +63,7 @@ public partial class NetManager : Singleton<NetManager>
         _receiveBuffer.Clear();
         idGenerator = new NetworkIdGenerator();
         AvgRTT = 0;
+        HasRttSample = false;
     }
 
     public void Deactivate()
@@ -355,17 +357,61 @@ public partial class NetManager : Singleton<NetManager>
     #endregion
 
     #region Sync / Spawn / Destroy / InitialPacket
+    /// <summary>向 peer 同步全部存活对象（会话域 + 对局域）。</summary>
     public void SyncAllNetObjectsToPlayer(ulong peerId)
+    {
+        SyncObjectsToPlayer(peerId, scopeFilter: null);
+    }
+
+    /// <summary>
+    /// 向 peer 同步存活对象快照。
+    /// <paramref name="scopeFilter"/> 为 null 时两域都推；否则仅推指定域。
+    /// </summary>
+    public void SyncObjectsToPlayer(ulong peerId, NetSyncScope? scopeFilter)
     {
         if (!IsHost) return;
 
-        Main.Print($"[Net Mgr] 正在向新玩家 {peerId} 同步所有存活对象...");
+        string scopeLabel = scopeFilter?.ToString() ?? "All";
+        Main.Print($"[Net Mgr] 正在向玩家 {peerId} 同步对象 (scope={scopeLabel})...");
 
+        var ordered = new List<KeyValuePair<uint, INetObject>>(idToObject.Count);
         foreach (var kvp in idToObject)
         {
-            uint id = kvp.Key;
-            INetObject obj = kvp.Value;
-            byte[] fullPacket = PackSpawnMessage(obj, id);
+            if (!NetSyncSelectUtil.IncludeInSync(kvp.Value.NetSyncScope, scopeFilter))
+                continue;
+            ordered.Add(kvp);
+        }
+
+        ordered.Sort(static (a, b) =>
+            NetSyncSelectUtil.CompareMidJoinOrder(
+                a.Value.MidJoinSyncPriority, a.Key,
+                b.Value.MidJoinSyncPriority, b.Key));
+
+        if ((scopeFilter is null or NetSyncScope.Session) && ordered.Count > 0)
+        {
+            bool hasSessionRoot = false;
+            for (int i = 0; i < ordered.Count; i++)
+            {
+                if (ordered[i].Value.MidJoinSyncPriority >= NetMidJoinSyncPriority.SessionRoot)
+                {
+                    hasSessionRoot = true;
+                    break;
+                }
+            }
+
+            if (hasSessionRoot && ordered[0].Value.MidJoinSyncPriority < NetMidJoinSyncPriority.SessionRoot)
+            {
+                var first = ordered[0].Value;
+                string firstName = first?.Info?.ObjectName ?? first?.GetType().Name ?? "?";
+                GD.PrintErr(
+                    $"[Net Mgr] Sync 时序异常: 存在会话根但未排在首位 " +
+                    $"(first={firstName}, priority={first?.MidJoinSyncPriority}, peer={peerId})");
+            }
+        }
+
+        foreach (var kvp in ordered)
+        {
+            byte[] fullPacket = PackSpawnMessage(kvp.Value, kvp.Key);
             Transport.Send(fullPacket, peerId);
         }
     }
@@ -378,7 +424,57 @@ public partial class NetManager : Singleton<NetManager>
         objectToId[netObject] = id;
 
         byte[] fullPacket = PackSpawnMessage(netObject, id);
-        Transport.SendToAll(fullPacket);
+        HostSendFramedPacketForObject(netObject, fullPacket);
+    }
+
+    /// <summary>
+    /// Session 域广播给所有客机；Match 域仅发给已准入对局的 peer。
+    /// 未注册 <see cref="NetMatchAdmission"/> 时 Match 域仍全员广播。
+    /// </summary>
+    void HostSendFramedPacketForObject(INetObject netObject, byte[] framedPacket)
+    {
+        if (Transport == null || framedPacket == null) return;
+
+        if (netObject.NetSyncScope != NetSyncScope.Match)
+        {
+            Transport.SendToAll(framedPacket);
+            return;
+        }
+
+        if (!TryGetMatchAdmittedRemotePeers(out var peers))
+        {
+            Transport.SendToAll(framedPacket);
+            return;
+        }
+
+        foreach (var peerId in peers)
+            Transport.Send(framedPacket, peerId);
+    }
+
+    void HostSendPackedForObject(INetObject netObject, ReadOnlySpan<byte> body)
+    {
+        if (Transport == null) return;
+
+        if (netObject.NetSyncScope != NetSyncScope.Match)
+        {
+            SendPackedToAllClients(body);
+            return;
+        }
+
+        if (!TryGetMatchAdmittedRemotePeers(out var peers))
+        {
+            SendPackedToAllClients(body);
+            return;
+        }
+
+        foreach (var peerId in peers)
+            SendPackedToPeer(body, peerId);
+    }
+
+    bool TryGetMatchAdmittedRemotePeers(out List<ulong> peerIds)
+    {
+        peerIds = NetMatchAdmission.CollectRemotePeers?.Invoke(LocalId);
+        return peerIds != null;
     }
 
     private byte[] PackSpawnMessage(INetObject obj, uint id)
@@ -514,7 +610,7 @@ public partial class NetManager : Singleton<NetManager>
         byte[] buffer = new byte[1 + 4];
         buffer[0] = (byte)NetMsgType.DestroyObj;
         BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(1, 4), id);
-        SendPackedToAllClients(buffer);
+        HostSendPackedForObject(netObject, buffer);
         RemoveNetObject(netObject);
     }
 
@@ -583,7 +679,7 @@ public partial class NetManager : Singleton<NetManager>
             BinaryPrimitives.WriteInt32LittleEndian(buffer.AsSpan(p, 4), d.Length); p += 4;
             d.CopyTo(buffer.AsSpan(p)); p += d.Length;
         }
-        SendPackedToAllClients(buffer);
+        HostSendPackedForObject(netObject, buffer);
     }
 
     private void ReadObjStateData(ReadOnlySpan<byte> content)
@@ -1001,8 +1097,13 @@ public partial class NetManager : Singleton<NetManager>
 
     private void ReadPong(ReadOnlySpan<byte> content)
     {
+        if (content.Length < 8) return;
+
         long sendTime = BinaryPrimitives.ReadInt64LittleEndian(content);
         long rtt = (long)Time.GetTicksMsec() - sendTime;
+        if (rtt < 0) rtt = 0;
+
+        HasRttSample = true;
         AvgRTT = AvgRTT == 0 ? rtt : (long)(AvgRTT * 0.7f + rtt * 0.3f);
     }
     #endregion

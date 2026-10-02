@@ -168,8 +168,10 @@ public partial class Game : Node,INetObject
     }
     public bool IsGameEnableEnter()
     {
-        return true;
-        return  _playersById.Count < MaxPlayerCount;
+        int cap = MaxPlayerCount;
+        if (cap <= 0)
+            return true;
+        return _playersById.Count < cap;
     }
     public void OnNetTransPlayerListChanged()
     {
@@ -273,6 +275,16 @@ public partial class Game : Node,INetObject
     bool isAuthorized = false;
     readonly NetVar midJoinable = new(true);
     public bool IsAuthorized => isAuthorized;
+
+    /// <summary>示例没有对局流。有 Match 时改为真实开局状态，并注册 <see cref="NetMatchAdmission.CollectRemotePeers"/>。</summary>
+    public bool InMatch => false;
+
+    /// <summary>示例没有对局 id。有 Match 时改为当前对局 id，供房间列表展示。</summary>
+    public string MatchId => "";
+
+    public int MidJoinSyncPriority => NetMidJoinSyncPriority.SessionRoot;
+    public NetSyncScope NetSyncScope => global::NetSyncScope.Session;
+
     public bool MidJoinable
     {
         get
@@ -343,6 +355,7 @@ public partial class Game : Node,INetObject
     public override void _EnterTree()
     {
         instance = this;
+        NetRoomPresenceSource.Read = ReadRoomPresence;
         Main.Print($"Game Entered Tree, authority: {isAuthorized}");
         UpdateState();
         InputManager.Instance?.SetLocalInputContext(_localCoopEnabled, _localPlayerCount);
@@ -373,6 +386,8 @@ public partial class Game : Node,INetObject
     }
     public override void _ExitTree()
     {
+        if (NetRoomPresenceSource.Read == ReadRoomPresence)
+            NetRoomPresenceSource.Read = null;
         if (instance == this) instance = null;
         if (IsOnline && TransportManager.Instance != null)
         {
@@ -403,6 +418,19 @@ public partial class Game : Node,INetObject
                 }
             }
         }
+    }
+
+    NetRoomPresence ReadRoomPresence()
+    {
+        return new NetRoomPresence
+        {
+            PlayerCount = players.Count,
+            MaxPlayers = MaxPlayerCount,
+            Joinable = IsGameEnableEnter(),
+            MidJoinable = MidJoinable,
+            InMatch = InMatch,
+            MatchId = MatchId ?? "",
+        };
     }
 
     public bool HasAuthority()
@@ -441,7 +469,7 @@ public partial class Game : Node,INetObject
     public void INetSpawn()
     {
         Main.Instance.AddGame(this);
-        Main.Instance.waitingPanel?.Hide();
+        UIManager.Instance.HideWaiting();
         //Main.Instance.AddChild(this);
     }
     public void INetDestroy()

@@ -9,6 +9,9 @@ public class SteamLobbyRoomInfo
     public string RoomName { get; set; } = "";
     public int PlayerCount { get; set; }
     public int MemberLimit { get; set; }
+    public bool InMatch { get; set; }
+    public bool MidJoinable { get; set; } = true;
+    public string MatchId { get; set; } = "";
     public bool Joinable { get; set; } = true;
 }
 
@@ -17,6 +20,34 @@ public partial class SteamManager : Singleton<SteamManager>
     static AppId_t appId_T = new AppId_t(4453480);
     bool inited = false;
     public bool Inited => inited;
+
+    public static string LocalPersonaName
+    {
+        get
+        {
+            if (Instance == null || !Instance.inited)
+                return "";
+            return SteamFriends.GetPersonaName() ?? "";
+        }
+    }
+
+    public bool IsRelayNetworkReady
+    {
+        get
+        {
+            if (!inited)
+                return false;
+            var avail = SteamNetworkingUtils.GetRelayNetworkStatus(out _);
+            return avail == ESteamNetworkingAvailability.k_ESteamNetworkingAvailability_Current;
+        }
+    }
+
+    public void EnsureRelayNetworkAccess()
+    {
+        if (!inited)
+            return;
+        SteamNetworkingUtils.InitRelayNetworkAccess();
+    }
 
     Callback<UserStatsReceived_t> userStatsReceiveCallback;
     Callback<GameLobbyJoinRequested_t> joinRequestedCallback;
@@ -35,6 +66,7 @@ public partial class SteamManager : Singleton<SteamManager>
         GD.Print("steam api inited!");
         GD.Print("steam user name:" + SteamFriends.GetPersonaName());
         SteamUserStats.RequestCurrentStats();
+        EnsureRelayNetworkAccess();
         userStatsReceiveCallback = Callback<UserStatsReceived_t>.Create(OnStatsGot);
         joinRequestedCallback = Callback<GameLobbyJoinRequested_t>.Create(OnJoinRequested);
         lobbyMatchListCallResult = CallResult<LobbyMatchList_t>.Create(OnLobbyMatchList);
@@ -78,6 +110,10 @@ public partial class SteamManager : Singleton<SteamManager>
         }
 
         SteamMatchmaking.AddRequestLobbyListDistanceFilter(ELobbyDistanceFilter.k_ELobbyDistanceFilterWorldwide);
+        SteamMatchmaking.AddRequestLobbyListStringFilter(
+            OnlineRoomListing.KeyGameId,
+            OnlineRoomListing.GameId,
+            ELobbyComparison.k_ELobbyComparisonEqual);
         SteamMatchmaking.AddRequestLobbyListResultCountFilter(50);
         var apiCall = SteamMatchmaking.RequestLobbyList();
         lobbyMatchListCallResult?.Set(apiCall);
@@ -94,25 +130,47 @@ public partial class SteamManager : Singleton<SteamManager>
         for (int i = 0; i < e.m_nLobbiesMatching; i++)
         {
             var lobby = SteamMatchmaking.GetLobbyByIndex(i);
-            string roomName = SteamMatchmaking.GetLobbyData(lobby, "room_name");
-            string joinableRaw = SteamMatchmaking.GetLobbyData(lobby, "joinable");
-            int playerCount = SteamMatchmaking.GetNumLobbyMembers(lobby);
+            string gameId = SteamMatchmaking.GetLobbyData(lobby, OnlineRoomListing.KeyGameId);
+            if (!OnlineRoomListing.IsOurGame(gameId))
+                continue;
+
+            string roomName = SteamMatchmaking.GetLobbyData(lobby, OnlineRoomListing.KeyRoomName);
+            if (!OnlineRoomListing.HasUsableRoomName(roomName))
+                continue;
+
             int memberLimit = SteamMatchmaking.GetLobbyMemberLimit(lobby);
-            bool joinable = joinableRaw != "0";
+            if (memberLimit <= 0
+                && int.TryParse(SteamMatchmaking.GetLobbyData(lobby, OnlineRoomListing.KeyMaxPlayers), out int parsedMax))
+            {
+                memberLimit = parsedMax;
+            }
 
-            if (string.IsNullOrWhiteSpace(roomName))
-                roomName = $"Steam Lobby {lobby.m_SteamID}";
+            int playerCount = OnlineRoomListing.ParsePlayerCount(
+                SteamMatchmaking.GetLobbyData(lobby, OnlineRoomListing.KeyPlayerCount));
+            if (playerCount <= 0)
+                playerCount = SteamMatchmaking.GetNumLobbyMembers(lobby);
 
-            if (memberLimit > 0 && playerCount >= memberLimit)
-                joinable = false;
+            string flow = SteamMatchmaking.GetLobbyData(lobby, OnlineRoomListing.KeyFlow);
+            bool inMatch = flow == OnlineRoomListing.FlowInMatch;
+            string matchId = SteamMatchmaking.GetLobbyData(lobby, OnlineRoomListing.KeyMatchId) ?? "";
+            bool midJoinable = OnlineRoomListing.ParseFlag(
+                SteamMatchmaking.GetLobbyData(lobby, OnlineRoomListing.KeyMidJoinable),
+                defaultValue: true);
+            string joinableRaw = SteamMatchmaking.GetLobbyData(lobby, OnlineRoomListing.KeyJoinable);
+            bool joinable = !string.IsNullOrEmpty(joinableRaw)
+                ? OnlineRoomListing.ParseFlag(joinableRaw, defaultValue: true)
+                : OnlineRoomListing.CanJoin(playerCount, memberLimit, inMatch, midJoinable);
 
             rooms.Add(new SteamLobbyRoomInfo
             {
                 LobbyId = lobby.m_SteamID,
-                RoomName = roomName,
+                RoomName = roomName.Trim(),
                 PlayerCount = playerCount,
                 MemberLimit = memberLimit,
-                Joinable = joinable
+                InMatch = inMatch,
+                MidJoinable = midJoinable,
+                MatchId = matchId,
+                Joinable = joinable,
             });
         }
 
@@ -127,16 +185,29 @@ public partial class SteamManager : Singleton<SteamManager>
             return;
 
         var lobby = steamTransport.currentLobby;
-        string roomName = string.IsNullOrWhiteSpace(context.RoomName) ? "Steam Room" : context.RoomName.Trim();
+        string roomName = OnlineRoomListing.ResolveRoomName(context.RoomName, ENetLobbyDisplayType.Steam);
+        var presence = NetRoomPresenceSource.Read?.Invoke();
+        int playerCount = presence?.PlayerCount ?? steamTransport.GetTempNetPlayerInfos()?.Count ?? 1;
+        bool inMatch = presence?.InMatch ?? false;
+        string matchId = presence?.MatchId ?? "";
+        bool currentlyJoinable = presence?.Joinable
+            ?? OnlineRoomListing.CanJoin(playerCount, context.MaxPlayers, false, context.MidJoinable);
 
-        SteamMatchmaking.SetLobbyData(lobby, "room_name", roomName);
-        SteamMatchmaking.SetLobbyData(lobby, "joinable", context.MidJoinable ? "1" : "0");
-        SteamMatchmaking.SetLobbyData(lobby, "max_players", context.MaxPlayers.ToString());
+        SteamMatchmaking.SetLobbyData(lobby, OnlineRoomListing.KeyGameId, OnlineRoomListing.GameId);
+        SteamMatchmaking.SetLobbyData(lobby, OnlineRoomListing.KeyRoomName, roomName);
+        SteamMatchmaking.SetLobbyData(lobby, OnlineRoomListing.KeyJoinable, currentlyJoinable ? "1" : "0");
+        SteamMatchmaking.SetLobbyData(lobby, OnlineRoomListing.KeyMidJoinable, context.MidJoinable ? "1" : "0");
+        SteamMatchmaking.SetLobbyData(lobby, OnlineRoomListing.KeyFlow,
+            inMatch ? OnlineRoomListing.FlowInMatch : OnlineRoomListing.FlowWaiting);
+        SteamMatchmaking.SetLobbyData(lobby, OnlineRoomListing.KeyMatchId, matchId);
+        SteamMatchmaking.SetLobbyData(lobby, OnlineRoomListing.KeyMaxPlayers, context.MaxPlayers.ToString());
+        SteamMatchmaking.SetLobbyData(lobby, OnlineRoomListing.KeyPlayerCount, playerCount.ToString());
         SteamMatchmaking.SetLobbyData(lobby, "visibility", context.Visibility.ToString());
+        // Joinable=false 的大厅不会出现在 RequestLobbyList。满员仍列出并置灰，不公开靠 LobbyType。
         SteamMatchmaking.SetLobbyJoinable(lobby, true);
         SteamMatchmaking.SetLobbyType(lobby, ToSteamLobbyType(context.Visibility));
     }
-    static ELobbyType ToSteamLobbyType(EGameLobbyType type)
+    public static ELobbyType ToSteamLobbyType(EGameLobbyType type)
     {
         return type switch
         {

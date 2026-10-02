@@ -1,5 +1,3 @@
-using Godot;
-
 /// <summary>
 /// Single entry to create and tear down a <see cref="MatchContext"/> for UnitCore + Promotion.
 /// Call <see cref="BeginMatch"/> when a run starts; <see cref="EndMatch"/> when it ends.
@@ -16,20 +14,25 @@ public static class CombatRuntime
 	public static object GlobalModifierOwner => Current?.GlobalModifierOwner;
 
 	/// <summary>
-	/// Resets global UnitCore scratch state, then creates and activates a new <see cref="MatchContext"/>.
+	/// Resets process scratch, then creates and activates a new <see cref="MatchContext"/>.
+	/// Resource catalogs are scanned only when the matching root path is set. They outlive the match.
 	/// </summary>
 	public static MatchContext BeginMatch(CombatRuntimeMatchOptions options = null)
 	{
 		EndMatch();
-		ResetUnitCoreScratch();
+		MatchContext.ClearProcessScratch();
 
-		MatchContext match = new MatchContext(options);
-		if (options != null && !string.IsNullOrEmpty(options.BuffResourceRootPath))
+		if (!string.IsNullOrEmpty(options?.BuffResourceRootPath))
 		{
 			BuffExt.Init(options.BuffResourceRootPath);
 		}
 
-		DamageFeedback.SpawnText = options?.SpawnDamageText;
+		if (!string.IsNullOrEmpty(options?.PromotionResourceRootPath))
+		{
+			PromotionExt.Init(options.PromotionResourceRootPath);
+		}
+
+		MatchContext match = new MatchContext(options);
 		Current = match;
 		match.Activate();
 		return match;
@@ -41,19 +44,21 @@ public static class CombatRuntime
 	public static MatchContext BeginMatchMinimal() => BeginMatch(null);
 
 	/// <summary>
-	/// Tears down the current match. Safe to call even if <see cref="BeginMatch"/> was not called.
+	/// Disposes <see cref="Current"/>. Safe to call even if <see cref="BeginMatch"/> was not called.
 	/// </summary>
 	public static void EndMatch()
 	{
-		if (Current != null)
+		if (Current == null)
 		{
-			Current.Dispose();
-			Current = null;
+			return;
 		}
 
-		ResetUnitCoreScratch();
-		DamageFeedback.SpawnText = null;
-		ConditionContext.ClearPool();
+		MatchContext match = Current;
+		match.Dispose();
+		if (ReferenceEquals(Current, match))
+		{
+			Current = null;
+		}
 	}
 
 	/// <summary>
@@ -68,16 +73,5 @@ public static class CombatRuntime
 		}
 
 		return Current;
-	}
-
-	static void ResetUnitCoreScratch()
-	{
-		UnitCoreEvents.Reset();
-
-		DamageModifierOwnerExt.ResetAllDamageModifierControllers();
-		BuffModifierOwnerExt.ResetAllBuffModifierControllers();
-
-		DamageModifierCollectSession.ResetScratch();
-		BuffModifierCollectSession.ResetScratch();
 	}
 }

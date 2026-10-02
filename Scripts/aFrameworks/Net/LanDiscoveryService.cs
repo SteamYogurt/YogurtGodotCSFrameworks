@@ -10,12 +10,17 @@ using System.Threading;
 
 public class LanRoomBroadcastData
 {
+    public string GameId { get; set; } = "";
     public string RoomName { get; set; } = "";
     public string HostAddress { get; set; } = "";
     public int Port { get; set; } = 7777;
 
     public int PlayerCount { get; set; }
+    public int MaxPlayers { get; set; }
     public bool Joinable { get; set; }
+    public bool MidJoinable { get; set; } = true;
+    public bool InMatch { get; set; }
+    public string MatchId { get; set; } = "";
 }
 
 public class LanDiscoveredRoomInfo : LanRoomBroadcastData
@@ -48,6 +53,9 @@ public partial class LanDiscoveryService : Node
     private long nextCleanupAtUnixMs;
 
     private string hostRoomName = "LAN Room";
+
+    public bool IsHosting => hosting;
+    public string CurrentHostRoomName => hostRoomName;
 
     public override void _ExitTree()
     {
@@ -110,7 +118,7 @@ public partial class LanDiscoveryService : Node
 
     public void StartHosting(string roomName)
     {
-        hostRoomName = string.IsNullOrWhiteSpace(roomName) ? "LAN Room" : roomName.Trim();
+        hostRoomName = OnlineRoomListing.ResolveRoomName(roomName, ENetLobbyDisplayType.Lan);
 
         if (hosting) return;
 
@@ -129,7 +137,7 @@ public partial class LanDiscoveryService : Node
 
     public void UpdateHostRoomName(string roomName)
     {
-        hostRoomName = string.IsNullOrWhiteSpace(roomName) ? "LAN Room" : roomName.Trim();
+        hostRoomName = OnlineRoomListing.ResolveRoomName(roomName, ENetLobbyDisplayType.Lan);
     }
 
     public void StopHosting()
@@ -250,24 +258,21 @@ public partial class LanDiscoveryService : Node
         if (transport == null || !transport.InRoom || !transport.AmIHost())
             return false;
 
-        var game = Game.instance;
-
-        int playerCount = transport.GetTempNetPlayerInfos()?.Count ?? 1;
-        bool joinable = true;
-
-        if (game != null)
-        {
-            playerCount = game.Players?.Count ?? playerCount;
-            joinable = game.IsGameEnableEnter();
-        }
+        var presence = NetRoomPresenceSource.Read?.Invoke();
+        int playerCount = presence?.PlayerCount ?? transport.GetTempNetPlayerInfos()?.Count ?? 1;
 
         data = new LanRoomBroadcastData
         {
+            GameId = OnlineRoomListing.GameId,
             RoomName = hostRoomName,
             HostAddress = "",
             Port = GamePort,
             PlayerCount = playerCount,
-            Joinable = joinable
+            MaxPlayers = presence?.MaxPlayers ?? 0,
+            Joinable = presence?.Joinable ?? true,
+            MidJoinable = presence?.MidJoinable ?? true,
+            InMatch = presence?.InMatch ?? false,
+            MatchId = presence?.MatchId ?? "",
         };
 
         return true;
@@ -284,13 +289,24 @@ public partial class LanDiscoveryService : Node
             if (data == null)
                 return false;
 
+            if (!OnlineRoomListing.HasUsableRoomName(data.RoomName))
+                return false;
+
+            if (!string.IsNullOrEmpty(data.GameId) && !OnlineRoomListing.IsOurGame(data.GameId))
+                return false;
+
             room = new LanDiscoveredRoomInfo
             {
-                RoomName = data.RoomName ?? "",
+                GameId = data.GameId ?? "",
+                RoomName = data.RoomName.Trim(),
                 HostAddress = remote.Address.ToString(),
                 Port = data.Port <= 0 ? GamePort : data.Port,
                 PlayerCount = data.PlayerCount,
+                MaxPlayers = data.MaxPlayers,
                 Joinable = data.Joinable,
+                MidJoinable = data.MidJoinable,
+                InMatch = data.InMatch,
+                MatchId = data.MatchId ?? "",
                 LastSeenUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
             };
 

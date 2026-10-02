@@ -16,7 +16,7 @@ public static class UnitCoreEvents
     internal static void RaiseReceivedDamage(DamageContext ctx) => ReceivedDamage?.Invoke(ctx);
 
     /// <summary>
-    /// Clears all subscribers. Call from <see cref="CombatRuntime"/> when starting or ending a match.
+    /// Clears all subscribers. <see cref="MatchContext"/> does this when a match is created or disposed.
     /// </summary>
     public static void Reset()
     {
