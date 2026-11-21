@@ -1,633 +1,459 @@
-using Godot;
+#nullable enable
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
-using System.Collections.Concurrent;
-using System.Buffers.Binary;
+using System.Threading.Tasks;
+
 public class LanPlayerInfo
 {
     public ulong PlayerId;
-    public string Name;
+    public string Name = "";
     public bool IsHost;
 }
 
 public partial class LanTransport : INetTransport
 {
+    internal const int DefaultPort = 7777;
+    private const ulong LanHostId = 1;
+    private const ulong BlockedHandshakeId = ulong.MaxValue;
+    private const ulong HandshakeVersion = ((ulong)NetWireLimits.ProtocolVersion << 48) | 0x4E41_4C54_454E;
+    private const int JoinTimeoutMs = 5000;
+    private const int HeartbeatIntervalMs = 2000;
+    private const int IoTimeoutMs = 10000;
+    private const int ReceiveBudget = 100;
+    private const int ReceiveByteBudget = 2 * 1024 * 1024;
+    private const int MaxPendingJoins = 32;
+    private const int KickFrameLength = -1;
+    private static readonly byte[] HeartbeatFrame = Frame(default);
+    private static readonly byte[] KickFrame = Frame(default, KickFrameLength);
+
+    private readonly Action<byte[]> receive;
+    private readonly int port;
+    private readonly Dictionary<ulong, LanPlayerInfo> players = new();
+    private readonly Dictionary<ulong, Connection> peers = new();
+    private readonly List<ulong> peerOrder = new();
+    private readonly List<ulong> disconnected = new();
+    private readonly HashSet<IPAddress> blockedAddresses = new();
+    private readonly List<Connection> closingPeers = new();
+    private readonly List<(Connection Peer, Task<bool> Hello)> pendingJoins = new();
+    private TcpListener? listener;
+    private CancellationTokenSource? acceptLifetime;
+    private Task<TcpClient>? accepting;
+    private Connection? client;
+    private Task<ulong>? joining;
+    private ulong nextPlayerId = LanHostId + 1;
+    private int receiveCursor;
+    private int roomVersion;
+    private bool peerListDirty;
+
+    public LanTransport(Action<byte[]> receive) : this(receive, DefaultPort) { }
+
+    internal LanTransport(Action<byte[]> receive, int port)
+    {
+        this.receive = receive;
+        this.port = port;
+    }
+
+    internal int ListeningPort => (listener?.LocalEndpoint as IPEndPoint)?.Port ?? 0;
+    public int MaxPlayers { get; set; } = 4;
     public bool InRoom { get; private set; }
     public ulong LocalID { get; private set; }
     public ulong HostID { get; private set; }
-
-    private readonly Dictionary<ulong, LanPlayerInfo> players = new();
+    public ulong CurrentSenderId { get; private set; }
+    public bool LastJoinWasBlocked { get; private set; }
     public IReadOnlyDictionary<ulong, LanPlayerInfo> Players => players;
 
-    public event Action NetPlayerListChanged;
-    public event Action RoomJoined;
-    public event Action RoomJoinFailed;
-    public event Action RoomStateChanged;
-    public event Action HostQuit;
+    public event Action? NetPlayerListChanged;
+    public event Action? RoomJoined;
+    public event Action? RoomJoinFailed;
+    public event Action? RoomStateChanged;
+    public event Action? HostQuit;
+    public event Action? Kicked;
 
-    private TcpListener listener;
-    private TcpClient client;
-
-    private volatile bool running;
-    private Thread acceptThread;
-
-    private ulong nextPlayerId = 2;
-    private bool isHost => LocalID == HostID;
-
-    private const int PORT = 7777;
-
-    // 接收队列
-    private readonly ConcurrentQueue<(ulong senderId, byte[] data)> recvQueue = new();
-    private readonly ConcurrentQueue<ulong> disconnectedQueue = new();
-
-    private volatile bool playerListDirty;
-
-    private const int HEARTBEAT_INTERVAL_MS = 2000;
-    private const int HEARTBEAT_TIMEOUT_MS = 6000;
-
-    // 用于在 Poll 循环中记录当前正在处理的数据包来源 ID，以便 Send 方法处理 OthersExceptSender
-    private ulong _currentProcessingSenderId = 0;
-
-    private enum PacketType : byte
-    {
-        Normal = 0,
-        Heartbeat = 1
-    }
-
-    private class ConnectionState
-    {
-        public ulong PeerId;
-        public TcpClient Tcp;
-        public NetworkStream Stream;
-        public Thread Thread;
-        public DateTime LastRecvTime;
-        public DateTime LastHeartbeatSendTime;
-
-        // 写锁：确保同一时间只有一个线程向该 Stream 写入
-        public readonly object WriteLock = new object();
-    }
-
-    // Host：所有客户端连接
-    private readonly Dictionary<ulong, ConnectionState> hostConnections = new();
-    private readonly object hostConnLock = new();
-
-    // Client：客户端对Host的写锁
-    private readonly object clientWriteLock = new object();
-
-    #region INetTransport Implementation
-
-    public void Init() => ResetState(false);
-    public void Free() => ResetState(false);
-
-    void ResetState(bool notifyRoomStateChanged)
-    {
-        running = false;
-
-        try { listener?.Stop(); } catch { }
-        listener = null;
-
-        if (acceptThread != null && acceptThread.IsAlive)
-            acceptThread.Join(100);
-        acceptThread = null;
-
-        lock (hostConnLock)
-        {
-            foreach (var c in hostConnections.Values)
-            {
-                try { c.Tcp?.Close(); } catch { }
-            }
-            hostConnections.Clear();
-        }
-
-        try { client?.Close(); } catch { }
-        client = null;
-
-        players.Clear();
-        while (recvQueue.TryDequeue(out _)) { }
-        while (disconnectedQueue.TryDequeue(out _)) { }
-
-        LocalID = 0;
-        HostID = 0;
-        InRoom = false;
-        _currentProcessingSenderId = 0;
-
-        playerListDirty = true;
-        if (notifyRoomStateChanged)
-            RoomStateChanged?.Invoke();
-    }
+    public void Init() => ResetState();
+    public void Free() => ResetState();
+    public bool AmIHost() => InRoom && LocalID == LanHostId;
 
     public void CreateRoom()
     {
-        ResetState(false);
-
+        ResetState();
+        LastJoinWasBlocked = false;
+        listener = new TcpListener(IPAddress.Any, port);
         try
         {
-            LocalID = 1;
-            HostID = 1;
-            InRoom = true;
-
-            players[1] = new LanPlayerInfo
-            {
-                PlayerId = 1,
-                Name = "Host",
-                IsHost = true
-            };
-
-            listener = new TcpListener(IPAddress.Any, PORT);
             listener.Start();
-
-            running = true;
-            acceptThread = new Thread(AcceptLoop) { IsBackground = true };
-            acceptThread.Start();
-
-            playerListDirty = true;
-            RoomJoined?.Invoke();
-            RoomStateChanged?.Invoke();
-            GD.Print("Room Created. LocalID: " + LocalID);
         }
-        catch (Exception e)
+        catch (SocketException)
         {
-            GD.PrintErr("Create Room Failed: " + e.Message);
+            ResetState();
             RoomJoinFailed?.Invoke();
-            LeaveRoom();
+            return;
         }
+
+        acceptLifetime = new CancellationTokenSource();
+        accepting = listener.AcceptTcpClientAsync(acceptLifetime.Token).AsTask();
+        LocalID = HostID = LanHostId;
+        InRoom = true;
+        AddPlayer(HostID, "Host");
+        RoomJoined?.Invoke();
+        if (AmIHost())
+            RoomStateChanged?.Invoke();
     }
 
     public void JoinRoom(string roomId)
     {
-        LeaveRoom();
-
-        try
+        ResetState();
+        LastJoinWasBlocked = false;
+        if (string.IsNullOrWhiteSpace(roomId))
         {
-            // 在 LAN 模式下，roomId 被视为 IP 地址
-            client = new TcpClient();
-            // 增加超时控制
-            var result = client.BeginConnect(roomId, PORT, null, null);
-            var success = result.AsyncWaitHandle.WaitOne(TimeSpan.FromSeconds(3));
-
-            if (!success)
-            {
-                client.Close();
-                throw new Exception("Connection timeout");
-            }
-
-            client.EndConnect(result);
-
-            running = true;
-            var t = new Thread(ClientReceiveLoop) { IsBackground = true };
-            t.Start();
-
-            InRoom = true;
-            RoomJoined?.Invoke();
-            RoomStateChanged?.Invoke();
-            GD.Print("Joined Room.");
-        }
-        catch (Exception e)
-        {
-            GD.PrintErr("Join Failed: " + e.Message);
             RoomJoinFailed?.Invoke();
-            LeaveRoom();
+            return;
         }
+
+        client = new Connection(new TcpClient());
+        joining = client.ConnectAndReadId(roomId, port);
     }
 
     public void LeaveRoom()
     {
-        ResetState(true);
+        ResetState();
+        RoomStateChanged?.Invoke();
     }
 
-    public bool AmIHost() => LocalID == HostID;
-
-    public ulong CurrentSenderId => _currentProcessingSenderId;
-
-    public void Send(byte[] data, ulong targetId)
+    private void ResetState()
     {
-        Send(data.AsSpan(), targetId);
+        roomVersion++;
+        acceptLifetime?.Cancel();
+        acceptLifetime?.Dispose();
+        acceptLifetime = null;
+        listener?.Stop();
+        listener = null;
+        if (accepting != null)
+            _ = DisposeAcceptedSocket(accepting);
+        accepting = null;
+
+        client?.Close();
+        client = null;
+        joining = null;
+        foreach (var peer in peers.Values)
+            peer.Close();
+        peers.Clear();
+        peerOrder.Clear();
+        foreach (var peer in closingPeers)
+            peer.Close();
+        closingPeers.Clear();
+        blockedAddresses.Clear();
+        peerListDirty = false;
+        foreach (var pending in pendingJoins)
+            pending.Peer.Close();
+        pendingJoins.Clear();
+        players.Clear();
+        nextPlayerId = LanHostId + 1;
+        receiveCursor = 0;
+        CurrentSenderId = LocalID = HostID = 0;
+        InRoom = false;
     }
 
-    public void Send(ReadOnlySpan<byte> data, ulong targetId)
+    private static async Task DisposeAcceptedSocket(Task<TcpClient> pending)
     {
-        if (!InRoom) return;
-
-        if (isHost)
+        try
         {
-            lock (hostConnLock)
-            {
-                if (hostConnections.TryGetValue(targetId, out var conn))
-                {
-                    lock (conn.WriteLock)
-                    {
-                        SendFrame(conn.Stream, PacketType.Normal, LocalID, data);
-                    }
-                }
-            }
+            (await pending.ConfigureAwait(false)).Dispose();
         }
-        else if (targetId == HostID)
-        {
-            if (client != null && client.Connected)
-            {
-                lock (clientWriteLock)
-                {
-                    SendFrame(client.GetStream(), PacketType.Normal, LocalID, data);
-                }
-            }
-        }
+        catch (Exception e) when (e is SocketException or OperationCanceledException or ObjectDisposedException) { }
     }
 
-    public void SendToAll(byte[] data, ulong excludePeerId = 0)
+    public void Send(byte[] data, ulong peerId) => Send(data.AsSpan(), peerId);
+
+    public void Send(ReadOnlySpan<byte> data, ulong peerId)
     {
+        if (!InRoom || !IsValidPacket(data))
+            return;
+
+        Connection? target;
+        if (AmIHost())
+            peers.TryGetValue(peerId, out target);
+        else
+            target = peerId == HostID ? client : null;
+
+        if (target != null)
+            target.Send(Frame(data));
+    }
+
+    public void SendToAll(byte[] data, ulong excludePeerId = 0) =>
         SendToAll(data.AsSpan(), excludePeerId);
-    }
 
     public void SendToAll(ReadOnlySpan<byte> data, ulong excludePeerId = 0)
     {
-        if (!InRoom) return;
-
-        if (!isHost)
+        if (!AmIHost())
         {
-            // 客机兜底：只能到主机
             Send(data, HostID);
             return;
         }
 
-        lock (hostConnLock)
-        {
-            foreach (var kv in hostConnections)
-            {
-                if (excludePeerId != 0 && kv.Key == excludePeerId) continue;
-
-                var conn = kv.Value;
-                lock (conn.WriteLock)
-                {
-                    SendFrame(conn.Stream, PacketType.Normal, LocalID, data);
-                }
-            }
-        }
+        SendToSelected(data, null, excludePeerId);
     }
+
+    public bool IsPeerConnected(ulong peerId) =>
+        AmIHost() && peers.TryGetValue(peerId, out var peer) && !peer.IsClosed;
+
+    public bool KickPeer(ulong peerId, bool blockRejoin)
+    {
+        if (!IsPeerConnected(peerId) || !peers.Remove(peerId, out var peer))
+            return false;
+
+        if (blockRejoin && peer.RemoteAddress is { } address)
+            blockedAddresses.Add(address);
+        peerOrder.Remove(peerId);
+        players.Remove(peerId);
+        peerListDirty = true;
+        peer.SendAndClose(KickFrame);
+        closingPeers.Add(peer);
+        return true;
+    }
+
+    public void SendToSelected(ReadOnlySpan<byte> data, Predicate<ulong>? include, ulong excludePeerId = 0)
+    {
+        if (!AmIHost() || !IsValidPacket(data))
+            return;
+        byte[]? frame = null;
+        foreach (var entry in peers)
+            if (entry.Key != excludePeerId && (include == null || include(entry.Key)))
+                entry.Value.Send(frame ??= Frame(data));
+    }
+
+    private static bool IsValidPacket(ReadOnlySpan<byte> data) =>
+        data.Length > 0 && data.Length <= NetWireLimits.MaxPacketBytes;
 
     public void Poll()
     {
-        // 处理最多 50 个包防止卡死主线程
-        int count = 0;
-        while (recvQueue.TryDequeue(out var packet) && count < 100)
-        {
-            count++;
+        if (joining is { IsCompleted: true } completed && client is { } pendingClient)
+            CompleteJoin(completed, pendingClient);
+        if (!InRoom)
+            return;
 
-            // 供 NetManager 转发时排除原发送者 / Pong 回包
-            _currentProcessingSenderId = packet.senderId;
-            NetManager.Instance.ProcessIncoming(packet.data);
+        long now = Environment.TickCount64;
+        if (AmIHost())
+            PollHost(now);
+        else if (client is { } connectedClient)
+            PollClient(now, connectedClient);
+    }
+
+    private void CompleteJoin(Task<ulong> completed, Connection pendingClient)
+    {
+        ulong peerId = completed.GetAwaiter().GetResult();
+        joining = null;
+        if (peerId is 0 or BlockedHandshakeId)
+        {
+            LastJoinWasBlocked = peerId == BlockedHandshakeId;
+            ResetState();
+            RoomJoinFailed?.Invoke();
+            return;
         }
 
-        // 处理完后重置，避免后续逻辑误用
-        _currentProcessingSenderId = 0;
-
-        while (disconnectedQueue.TryDequeue(out var id))
-        {
-            // 关键逻辑：如果掉线的人是 Host，且我不是 Host
-            if (!isHost && id == HostID)
-            {
-                GD.Print("[LanTransport] Host connection lost.");
-                HostQuit?.Invoke();
-                // 注意：房主没了，这个房间也就没意义了
-                LeaveRoom();
-                return; // 房主退了，直接结束本次 Poll
-            }
-
-            if (players.Remove(id))
-            {
-                GD.Print($"Player {id} disconnected");
-                playerListDirty = true;
-            }
-        }
-
-        if (playerListDirty)
-        {
-            playerListDirty = false;
-            NetPlayerListChanged?.Invoke();
+        LocalID = peerId;
+        HostID = LanHostId;
+        InRoom = true;
+        AddPlayer(HostID, "Host");
+        AddPlayer(LocalID, "Me");
+        pendingClient.Start(acceptKick: true);
+        RoomJoined?.Invoke();
+        if (InRoom && LocalID == peerId)
             RoomStateChanged?.Invoke();
+    }
+
+    private void PollHost(long now)
+    {
+        int version = roomVersion;
+        closingPeers.RemoveAll(peer => peer.IsClosed);
+        disconnected.Clear();
+        foreach (var entry in peers)
+        {
+            if (entry.Value.IsClosed)
+                disconnected.Add(entry.Key);
+            else
+                entry.Value.SendHeartbeatIfIdle(now);
         }
+        foreach (ulong peerId in disconnected)
+        {
+            peers.Remove(peerId);
+            peerOrder.Remove(peerId);
+            players.Remove(peerId);
+        }
+        // Apply departures before admissions so a newly freed slot is immediately usable.
+        if (peerListDirty || disconnected.Count > 0)
+        {
+            peerListDirty = false;
+            NotifyPlayersChanged();
+        }
+        if (version != roomVersion)
+            return;
+
+        PollAccept();
+        if (version != roomVersion)
+            return;
+
+        int bytes = 0;
+        int emptyPeers = 0;
+        for (int count = 0; count < ReceiveBudget && bytes < ReceiveByteBudget && emptyPeers < peerOrder.Count;)
+        {
+            if (receiveCursor >= peerOrder.Count)
+                receiveCursor = 0;
+            ulong peerId = peerOrder[receiveCursor++];
+            var peer = peers[peerId];
+            if (peer.IsClosed || !peer.TryReceive(out var data))
+            {
+                emptyPeers++;
+                continue;
+            }
+            emptyPeers = 0;
+            bytes += data.Length;
+            count++;
+            Dispatch(peerId, data);
+            if (version != roomVersion)
+                return;
+        }
+    }
+
+    private void PollAccept()
+    {
+        if (listener is not { } activeListener || acceptLifetime is not { } lifetime)
+            return;
+
+        for (int i = 0; i < MaxPendingJoins && accepting is { IsCompleted: true } accepted; i++)
+        {
+            TcpClient? tcp = null;
+            try
+            {
+                tcp = accepted.GetAwaiter().GetResult();
+            }
+            catch (SocketException) { }
+            accepting = activeListener.AcceptTcpClientAsync(lifetime.Token).AsTask();
+            if (tcp == null)
+                continue;
+
+            if (pendingJoins.Count + closingPeers.Count >= MaxPendingJoins)
+            {
+                tcp.Dispose();
+                continue;
+            }
+
+            var connection = new Connection(tcp);
+            pendingJoins.Add((connection, connection.ReadHello()));
+        }
+
+        bool changed = false;
+        for (int i = 0; i < pendingJoins.Count;)
+        {
+            var (connection, hello) = pendingJoins[i];
+            if (!hello.IsCompleted)
+            {
+                i++;
+                continue;
+            }
+            pendingJoins.RemoveAt(i);
+            if (!hello.GetAwaiter().GetResult())
+            {
+                connection.Close();
+                continue;
+            }
+
+            bool blocked = connection.RemoteAddress is { } address && blockedAddresses.Contains(address);
+            if (blocked || !CanAcceptPeer())
+            {
+                connection.Start();
+                connection.SendAndClose(BuildHandshake(blocked ? BlockedHandshakeId : 0));
+                closingPeers.Add(connection);
+                continue;
+            }
+
+            ulong peerId = nextPlayerId++;
+            connection.Send(BuildHandshake(peerId));
+            connection.Start();
+            peers.Add(peerId, connection);
+            peerOrder.Add(peerId);
+            AddPlayer(peerId, $"Client{peerId}");
+            changed = true;
+        }
+
+        if (changed)
+            NotifyPlayersChanged();
+    }
+
+    private bool CanAcceptPeer() => players.Count < Math.Clamp(MaxPlayers, 1, 250)
+        && NetRoomPresenceSource.Read?.Invoke()?.AllowsJoining != false;
+
+    private static byte[] BuildHandshake(ulong peerId)
+    {
+        var handshake = new byte[16];
+        BinaryPrimitives.WriteUInt64LittleEndian(handshake, HandshakeVersion);
+        BinaryPrimitives.WriteUInt64LittleEndian(handshake.AsSpan(8), peerId);
+        return handshake;
+    }
+
+    private void PollClient(long now, Connection connectedClient)
+    {
+        int version = roomVersion;
+        int bytes = 0;
+        connectedClient.SendHeartbeatIfIdle(now);
+        for (int i = 0; i < ReceiveBudget && bytes < ReceiveByteBudget; i++)
+        {
+            if (!connectedClient.TryReceive(out var data))
+            {
+                if (connectedClient.WasKicked || connectedClient.IsClosed)
+                {
+                    bool kicked = connectedClient.WasKicked;
+                    ResetState();
+                    int resetVersion = roomVersion;
+                    if (kicked)
+                        Kicked?.Invoke();
+                    else
+                        HostQuit?.Invoke();
+                    if (resetVersion == roomVersion)
+                        RoomStateChanged?.Invoke();
+                }
+                return;
+            }
+
+            bytes += data.Length;
+            Dispatch(HostID, data);
+            if (version != roomVersion)
+                return;
+        }
+    }
+
+    private void Dispatch(ulong peerId, byte[] data)
+    {
+        CurrentSenderId = peerId;
+        try
+        {
+            receive(data);
+        }
+        finally
+        {
+            CurrentSenderId = 0;
+        }
+    }
+
+    private void AddPlayer(ulong peerId, string name) =>
+        players.Add(peerId, new LanPlayerInfo { PlayerId = peerId, Name = name, IsHost = peerId == LanHostId });
+
+    private void NotifyPlayersChanged()
+    {
+        int version = roomVersion;
+        NetPlayerListChanged?.Invoke();
+        if (version == roomVersion)
+            RoomStateChanged?.Invoke();
     }
 
     public List<INetTransportPlayerInfo> GetTempNetPlayerInfos()
     {
-        if (!InRoom) return new List<INetTransportPlayerInfo>();
-
-        var list = new List<INetTransportPlayerInfo>();
-        foreach (var p in players.Values)
-        {
-            list.Add(new INetTransportPlayerInfo
-            {
-                id = p.PlayerId,
-                name = p.Name
-            });
-        }
+        var list = new List<INetTransportPlayerInfo>(players.Count);
+        foreach (var player in players.Values)
+            list.Add(new INetTransportPlayerInfo { id = player.PlayerId, name = player.Name });
         return list;
     }
-
-    #endregion
-
-    #region Host Threads
-
-    private void AcceptLoop()
-    {
-        while (running && listener != null)
-        {
-            try
-            {
-                if (!listener.Pending())
-                {
-                    Thread.Sleep(10);
-                    continue;
-                }
-
-                var tcp = listener.AcceptTcpClient();
-                ulong id = nextPlayerId++;
-
-                // 发送握手包 (同步发送，还没加入 hostConnections，暂时不需要锁)
-                SendHandshake(tcp, id, HostID);
-
-                var conn = new ConnectionState
-                {
-                    PeerId = id,
-                    Tcp = tcp,
-                    Stream = tcp.GetStream(),
-                    LastRecvTime = DateTime.UtcNow,
-                    LastHeartbeatSendTime = DateTime.UtcNow
-                };
-
-                conn.Thread = new Thread(() => HostClientLoop(conn))
-                {
-                    IsBackground = true
-                };
-
-                lock (hostConnLock)
-                    hostConnections[id] = conn;
-
-                players[id] = new LanPlayerInfo
-                {
-                    PlayerId = id,
-                    Name = "Client" + id,
-                    IsHost = false
-                };
-
-                playerListDirty = true;
-                conn.Thread.Start();
-                GD.Print($"Client {id} connected.");
-            }
-            catch (Exception ex)
-            {
-                if (running) GD.PrintErr("Accept Error: " + ex.Message);
-            }
-        }
-    }
-
-    private void HostClientLoop(ConnectionState conn)
-    {
-        try
-        {
-            while (running && conn.Tcp != null && conn.Tcp.Connected)
-            {
-                bool hasData = false;
-                try
-                {
-                    hasData = conn.Stream.DataAvailable || conn.Tcp.Client.Poll(1000, SelectMode.SelectRead);
-                }
-                catch
-                {
-                    break;
-                }
-
-                if (hasData)
-                {
-                    if (!ReadFrame(conn.Stream, out var type, out var sender, out var payload))
-                        break;
-
-                    conn.LastRecvTime = DateTime.UtcNow;
-
-                    if (type == PacketType.Normal)
-                    {
-                        recvQueue.Enqueue((conn.PeerId, payload));
-                    }
-                }
-
-                var now = DateTime.UtcNow;
-
-                if ((now - conn.LastHeartbeatSendTime).TotalMilliseconds > HEARTBEAT_INTERVAL_MS)
-                {
-                    lock (conn.WriteLock)
-                    {
-                        SendFrame(conn.Stream, PacketType.Heartbeat, LocalID, Array.Empty<byte>());
-                    }
-                    conn.LastHeartbeatSendTime = now;
-                }
-
-                if ((now - conn.LastRecvTime).TotalMilliseconds > HEARTBEAT_TIMEOUT_MS)
-                {
-                    GD.Print($"Client {conn.PeerId} timed out.");
-                    break;
-                }
-
-                Thread.Sleep(1);
-            }
-        }
-        catch (Exception e)
-        {
-            if (running) GD.PrintErr($"Client Loop Error {conn.PeerId}: {e.Message}");
-        }
-        finally
-        {
-            try { conn.Tcp?.Close(); } catch { }
-            lock (hostConnLock)
-                hostConnections.Remove(conn.PeerId);
-            disconnectedQueue.Enqueue(conn.PeerId);
-        }
-    }
-    #endregion
-
-    #region Client Thread
-
-    private void ClientReceiveLoop()
-    {
-        bool hostDisconnected = false;
-
-        try
-        {
-            var stream = client.GetStream();
-            var buf = ReadExact(stream, 16);
-            if (buf == null) throw new Exception("Handshake failed");
-
-            LocalID = BinaryPrimitives.ReadUInt64LittleEndian(buf.AsSpan(0, 8));
-            HostID = BinaryPrimitives.ReadUInt64LittleEndian(buf.AsSpan(8, 8));
-
-            players[HostID] = new LanPlayerInfo
-            {
-                PlayerId = HostID,
-                Name = "Host",
-                IsHost = true
-            };
-
-            players[LocalID] = new LanPlayerInfo
-            {
-                PlayerId = LocalID,
-                Name = "Me",
-                IsHost = false
-            };
-
-            playerListDirty = true;
-            GD.Print($"Handshake success. My ID: {LocalID}");
-
-            DateTime lastRecv = DateTime.UtcNow;
-            DateTime lastHb = DateTime.UtcNow;
-
-            while (running && client != null && client.Connected)
-            {
-                bool hasData = false;
-                try
-                {
-                    hasData = stream.DataAvailable || client.Client.Poll(1000, SelectMode.SelectRead);
-                }
-                catch
-                {
-                    if (running) hostDisconnected = true;
-                    break;
-                }
-
-                if (hasData)
-                {
-                    if (!ReadFrame(stream, out var type, out var sender, out var payload))
-                    {
-                        if (running) hostDisconnected = true;
-                        break;
-                    }
-
-                    lastRecv = DateTime.UtcNow;
-
-                    if (type == PacketType.Normal)
-                        recvQueue.Enqueue((sender, payload));
-                }
-
-                var now = DateTime.UtcNow;
-
-                if ((now - lastHb).TotalMilliseconds > HEARTBEAT_INTERVAL_MS)
-                {
-                    lock (clientWriteLock)
-                    {
-                        SendFrame(stream, PacketType.Heartbeat, LocalID, Array.Empty<byte>());
-                    }
-                    lastHb = now;
-                }
-
-                if ((now - lastRecv).TotalMilliseconds > HEARTBEAT_TIMEOUT_MS)
-                {
-                    GD.Print("Host timed out.");
-                    hostDisconnected = true;
-                    break;
-                }
-
-                Thread.Sleep(1);
-            }
-        }
-        catch (Exception e)
-        {
-            if (running)
-            {
-                hostDisconnected = true;
-                GD.PrintErr("Client Loop Error: " + e.Message);
-            }
-        }
-        finally
-        {
-            if (hostDisconnected && running)
-            {
-                disconnectedQueue.Enqueue(HostID);
-            }
-
-            running = false;
-        }
-    }
-    #endregion
-
-    #region Packet
-
-    private void SendHandshake(TcpClient tcp, ulong id, ulong hostId)
-    {
-        try
-        {
-            var stream = tcp.GetStream();
-            byte[] buf = new byte[16];
-            BinaryPrimitives.WriteUInt64LittleEndian(buf.AsSpan(0, 8), id);
-            BinaryPrimitives.WriteUInt64LittleEndian(buf.AsSpan(8, 8), hostId);
-            stream.Write(buf, 0, 16);
-        }
-        catch { }
-    }
-
-    private void SendFrame(NetworkStream stream, PacketType type, ulong senderId, ReadOnlySpan<byte> payload)
-    {
-        try
-        {
-            int totalLen = 1 + 8 + 4 + payload.Length;
-            byte[] fullPacket = new byte[totalLen];
-
-            fullPacket[0] = (byte)type;
-            BinaryPrimitives.WriteUInt64LittleEndian(fullPacket.AsSpan(1, 8), senderId);
-            BinaryPrimitives.WriteInt32LittleEndian(fullPacket.AsSpan(9, 4), payload.Length);
-            if (!payload.IsEmpty)
-                payload.CopyTo(fullPacket.AsSpan(13));
-
-            stream.Write(fullPacket, 0, totalLen);
-        }
-        catch (Exception)
-        {
-            // 发送失败通常意味着连接断开
-        }
-    }
-
-    private bool ReadFrame(NetworkStream stream, out PacketType type, out ulong sender, out byte[] payload)
-    {
-        type = 0;
-        sender = 0;
-        payload = null;
-
-        try
-        {
-            int t = stream.ReadByte();
-            if (t < 0) return false;
-            type = (PacketType)t;
-
-            var sid = ReadExact(stream, 8);
-            var lenBuf = ReadExact(stream, 4);
-            if (sid == null || lenBuf == null) return false;
-
-            sender = BinaryPrimitives.ReadUInt64LittleEndian(sid);
-            int len = BinaryPrimitives.ReadInt32LittleEndian(lenBuf);
-
-            if (len < 0 || len > 1024 * 1024 * 10) // 10MB Limit
-                return false;
-
-            payload = len > 0 ? ReadExact(stream, len) : Array.Empty<byte>();
-            return payload != null;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private byte[] ReadExact(NetworkStream stream, int len)
-    {
-        byte[] buf = new byte[len];
-        int read = 0;
-        while (read < len)
-        {
-            int r = stream.Read(buf, read, len - read);
-            if (r <= 0) return null;
-            read += r;
-        }
-        return buf;
-    }
-
-    #endregion
 }

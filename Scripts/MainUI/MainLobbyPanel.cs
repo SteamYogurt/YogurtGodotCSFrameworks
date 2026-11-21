@@ -1,6 +1,7 @@
-using Godot;
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using Godot;
 
 public partial class MainLobbyPanel : Control
 {
@@ -13,12 +14,16 @@ public partial class MainLobbyPanel : Control
     [Export] public Button refreshButton;
     [Export] public Button createButton;
     [Export] public Button backButton;
-
+    [Export] public Label noticeLabel;
+    [Export] public Control directJoinRow;
+    [Export] public LineEdit addressEdit;
+    [Export] public Button connectButton;
     [Export] public PackedScene lobbyEntranceItemScene;
     [Export] public PackedScene createPanelScene;
 
     readonly List<MainLobbyRoomItem> roomItems = new();
     MainLobbyRoomItem selectedItem;
+    bool IsLan => DisplayType == ENetLobbyDisplayType.Lan;
 
     public override void _Ready()
     {
@@ -30,27 +35,49 @@ public partial class MainLobbyPanel : Control
         createButton ??= GetNodeOrNull<Button>("Panel/Root/VBox/Buttons/CreateButton");
         backButton ??= GetNodeOrNull<Button>("Panel/Root/VBox/Buttons/BackButton");
 
+        if (titleLabel != null)
+            titleLabel.Text = IsLan ? "局域网大厅" : "Steam 大厅";
         if (joinButton != null)
-            joinButton.Pressed += OnJoinPressed;
+        {
+            joinButton.Disabled = true;
+            joinButton.Pressed += JoinSelectedRoom;
+        }
         if (refreshButton != null)
             refreshButton.Pressed += RefreshRooms;
         if (createButton != null)
             createButton.Pressed += OpenCreatePanel;
         if (backButton != null)
             backButton.Pressed += Main.Instance.ResetAndReturnToMenu;
+        if (directJoinRow != null)
+            directJoinRow.Visible = IsLan;
+        if (addressEdit != null && connectButton != null)
+        {
+            addressEdit.TextChanged += text => connectButton.Disabled = string.IsNullOrWhiteSpace(text);
+            addressEdit.TextSubmitted += _ => JoinAddress();
+            connectButton.Pressed += JoinAddress;
+            connectButton.Disabled = string.IsNullOrWhiteSpace(addressEdit.Text);
+        }
 
-        VisibilityChanged += OnVisibilityChanged;
+        if (IsLan)
+            Main.Instance.lanDiscoveryService.RoomsChanged += OnLanRoomsChanged;
+        else if (SteamManager.Instance != null)
+            SteamManager.Instance.LobbyListUpdated += OnSteamLobbyListUpdated;
 
-        ApplyDisplayType();
-        SubscribeRoomSources();
         RefreshRooms();
+        FocusDefaultButton();
     }
 
     public override void _ExitTree()
     {
-        UnsubscribeRoomSources();
-        if (DisplayType == ENetLobbyDisplayType.Lan && Main.Instance != null)
-            Main.Instance?.lanDiscoveryService?.StopBrowsing();
+        if (IsLan && Main.Instance?.lanDiscoveryService is { } lan)
+        {
+            lan.RoomsChanged -= OnLanRoomsChanged;
+            lan.StopBrowsing();
+        }
+        else if (SteamManager.Instance != null)
+        {
+            SteamManager.Instance.LobbyListUpdated -= OnSteamLobbyListUpdated;
+        }
     }
 
     public void RestoreFromCreatePanel()
@@ -60,59 +87,43 @@ public partial class MainLobbyPanel : Control
         FocusDefaultButton();
     }
 
-    void ApplyDisplayType()
+    public void ShowNotice(string text)
     {
-        if (titleLabel != null)
-            titleLabel.Text = DisplayType == ENetLobbyDisplayType.Steam ? "Steam 大厅" : "LAN 大厅";
-        SetStatus("请选择一个房间。", clearSelection: true);
-    }
-
-    void SubscribeRoomSources()
-    {
-        if (DisplayType == ENetLobbyDisplayType.Steam)
-            SteamManager.Instance.LobbyListUpdated += OnSteamLobbyListUpdated;
-        else if (Main.Instance?.lanDiscoveryService != null)
-            Main.Instance.lanDiscoveryService.RoomsChanged += OnLanRoomsChanged;
-    }
-
-    void UnsubscribeRoomSources()
-    {
-        if (SteamManager.Instance != null)
-            SteamManager.Instance.LobbyListUpdated -= OnSteamLobbyListUpdated;
-        if (Main.Instance?.lanDiscoveryService != null)
-            Main.Instance.lanDiscoveryService.RoomsChanged -= OnLanRoomsChanged;
-    }
-
-    void OnVisibilityChanged()
-    {
-        if (!Visible)
+        if (noticeLabel == null)
             return;
-
-        FocusDefaultButton();
+        noticeLabel.Text = text;
+        noticeLabel.Visible = !string.IsNullOrEmpty(text);
     }
 
     public void FocusDefaultButton()
     {
-        var button = UIUtils.FindFirstFocusButton(this);
+        Button button = selectedItem;
+        button ??= createButton?.Disabled == false ? createButton : backButton;
         button?.GrabFocus();
     }
 
     void RefreshRooms()
     {
-        SetStatus("正在刷新房间列表...", clearSelection: true);
-        if (DisplayType == ENetLobbyDisplayType.Steam)
+        if (IsLan)
         {
-            SteamManager.Instance?.RequestLobbyList();
+            Main.Instance.lanDiscoveryService.StartBrowsing();
+            OnLanRoomsChanged();
             return;
         }
 
-        Main.Instance?.lanDiscoveryService?.StartBrowsing();
-        RenderLanRooms(Main.Instance?.lanDiscoveryService?.GetRooms());
+        bool available = SteamManager.Instance?.Inited == true;
+        if (createButton != null)
+            createButton.Disabled = !available;
+        if (statusLabel != null)
+            statusLabel.Text = available ? "正在刷新…" : "请启动 Steam 后重开游戏。";
+        if (available)
+            SteamManager.Instance.RequestLobbyList();
     }
 
     void OpenCreatePanel()
     {
-        if (createPanelScene == null) return;
+        if (createPanelScene == null)
+            return;
         var panel = createPanelScene.Instantiate<MainLobbyCreatePanel>();
         panel.DisplayType = DisplayType;
         panel.BindReturnPanel(this);
@@ -120,119 +131,84 @@ public partial class MainLobbyPanel : Control
         Main.Instance.AddUI(panel);
     }
 
-    void OnJoinPressed()
+    void JoinSelectedRoom()
     {
-        if (selectedItem == null || string.IsNullOrWhiteSpace(selectedItem.RoomId))
-            return;
-
-        Main.Instance.StartJoinLobby(selectedItem.RoomId, DisplayType);
+        if (selectedItem?.Joinable == true && !string.IsNullOrEmpty(selectedItem.RoomId))
+            Main.Instance.StartJoinLobby(selectedItem.RoomId, DisplayType);
     }
 
-    void OnRoomItemSelected(MainLobbyRoomItem item)
+    void JoinAddress()
+    {
+        string address = addressEdit?.Text.Trim();
+        if (IsLan && !string.IsNullOrEmpty(address))
+            Main.Instance.StartJoinLobby(address, DisplayType);
+    }
+
+    void SelectRoom(MainLobbyRoomItem item)
     {
         selectedItem = item;
         foreach (var roomItem in roomItems)
             roomItem.SetSelected(roomItem == item);
-
         if (joinButton != null)
             joinButton.Disabled = !item.Joinable;
-
-        SetStatus(item.Joinable ? "已选择房间，可加入。" : "该房间当前不可加入。", clearSelection: false);
     }
 
-    void OnSteamLobbyListUpdated(IReadOnlyList<SteamLobbyRoomInfo> rooms)
-    {
-        RenderEntries(ToEntries(rooms, OnlineRoomListing.FromSteam));
-    }
+    void OnSteamLobbyListUpdated(IReadOnlyList<SteamLobbyRoomInfo> rooms) =>
+        RenderEntries(rooms.Select(OnlineRoomListing.FromSteam));
 
-    void OnLanRoomsChanged()
-    {
-        RenderLanRooms(Main.Instance?.lanDiscoveryService?.GetRooms());
-    }
+    void OnLanRoomsChanged() =>
+        RenderEntries(Main.Instance.lanDiscoveryService.GetRooms().Select(OnlineRoomListing.FromLan));
 
-    void RenderLanRooms(IReadOnlyList<LanDiscoveredRoomInfo> rooms)
+    void RenderEntries(IEnumerable<OnlineRoomListEntry> entries)
     {
-        RenderEntries(ToEntries(rooms, OnlineRoomListing.FromLan));
-    }
-
-    static List<OnlineRoomListEntry> ToEntries<T>(IReadOnlyList<T> rooms, Func<T, OnlineRoomListEntry> map)
-    {
-        var entries = new List<OnlineRoomListEntry>();
-        if (rooms == null)
-            return entries;
-        for (int i = 0; i < rooms.Count; i++)
-        {
-            var entry = map(rooms[i]);
-            if (entry != null)
-                entries.Add(entry);
-        }
-        return entries;
-    }
-
-    void RenderEntries(IReadOnlyList<OnlineRoomListEntry> rooms)
-    {
-        RenderRooms(rooms, room => room.RoomId, room => room.RoomName, FormatDetail, room => room.CanJoin);
-    }
-
-    void RenderRooms<T>(IReadOnlyList<T> rooms, Func<T, string> getRoomId, Func<T, string> getRoomName,
-        Func<T, string> getDetail, Func<T, bool> getJoinable)
-    {
-        ClearRoomItems();
-
-        if (rooms == null || rooms.Count == 0)
-        {
-            SetStatus("未找到可用房间。", clearSelection: true);
+        var rooms = entries.Where(room => room != null && !string.IsNullOrEmpty(room.RoomId))
+            .OrderByDescending(room => room.CanJoin)
+            .ThenBy(room => room.RoomName, StringComparer.CurrentCulture).ToArray();
+        if (statusLabel != null)
+            statusLabel.Text = rooms.Length == 0 ? "暂未发现房间" : $"{rooms.Length} 个房间";
+        if (lobbyEntranceItemScene == null || roomListContainer == null)
             return;
-        }
 
-        if (lobbyEntranceItemScene == null) return;
+        string selection = selectedItem?.RoomId;
+        bool listFocused = roomItems.Contains(GetViewport().GuiGetFocusOwner() as MainLobbyRoomItem);
+        selectedItem = null;
+        if (joinButton != null)
+            joinButton.Disabled = true;
+        foreach (var item in roomItems)
+        {
+            item.Selected -= SelectRoom;
+            item.Activated -= JoinSelectedRoom;
+            roomListContainer.RemoveChild(item);
+            item.QueueFree();
+        }
+        roomItems.Clear();
 
         foreach (var room in rooms)
         {
             var item = lobbyEntranceItemScene.Instantiate<MainLobbyRoomItem>();
-            item.Setup(getRoomId(room), getRoomName(room), getDetail(room), getJoinable(room));
-            item.Selected += OnRoomItemSelected;
-            roomListContainer?.AddChild(item);
+            item.Setup(room.RoomId, room.RoomName, FormatDetail(room), room.CanJoin);
+            item.Selected += SelectRoom;
+            item.Activated += JoinSelectedRoom;
+            roomListContainer.AddChild(item);
             roomItems.Add(item);
         }
 
-        SetStatus($"已刷新到 {rooms.Count} 个房间。", clearSelection: true);
-        if (roomItems.Count > 0)
-            OnRoomItemSelected(roomItems[0]);
+        var selected = roomItems.Find(item => item.RoomId == selection) ?? roomItems.FirstOrDefault();
+        if (selected != null)
+            SelectRoom(selected);
+        if (listFocused)
+            FocusDefaultButton();
     }
 
-    string FormatDetail(OnlineRoomListEntry room)
+    static string FormatDetail(OnlineRoomListEntry room)
     {
-        string countText = room.MemberLimit > 0
-            ? $"人数: {room.PlayerCount}/{room.MemberLimit}"
-            : $"人数: {room.PlayerCount}";
-        if (room.InMatch)
-            countText += " | 对局中";
-        return room.CanJoin ? countText : $"{countText} | 不可加入";
-    }
-
-    void ClearRoomItems()
-    {
-        selectedItem = null;
-        if (joinButton != null)
-            joinButton.Disabled = true;
-
-        for (int i = 0; i < roomItems.Count; i++)
-        {
-            var item = roomItems[i];
-            if (item == null)
-                continue;
-            item.Selected -= OnRoomItemSelected;
-            item.QueueFree();
-        }
-        roomItems.Clear();
-    }
-
-    void SetStatus(string text, bool clearSelection)
-    {
-        if (statusLabel != null)
-            statusLabel.Text = text;
-        if (clearSelection && joinButton != null)
-            joinButton.Disabled = true;
+        string count = room.MemberLimit > 0
+            ? $"{room.PlayerCount} / {room.MemberLimit}"
+            : $"{room.PlayerCount} 人";
+        if (OnlineRoomListing.IsFull(room.PlayerCount, room.MemberLimit))
+            return $"{count}  ·  已满";
+        if (!room.CanJoin)
+            return $"{count}  ·  暂停加入";
+        return room.InMatch ? $"{count}  ·  对局中" : count;
     }
 }

@@ -9,8 +9,10 @@ using Godot;
 public partial class UIManager : Singleton<UIManager>
 {
 	public const string DefaultLobbyPanelPath = "res://Scene/UI/Main/MainLobbyPanel.tscn";
+	public const string DefaultOnlineRoomPanelPath = "res://Scene/UI/Main/MainOnlineRoomPanel.tscn";
 	public const string DefaultSettingsPath = "res://addons_custom/Settings/Settings.tscn";
 	public const string DefaultTransitionPath = "res://Scene/UI/Main/Transition.tscn";
+	public const string SettingsId = "settings";
 
 	readonly HashSet<Node> persistent = new();
 
@@ -24,7 +26,8 @@ public partial class UIManager : Singleton<UIManager>
 	public override void _Ready()
 	{
 		base._Ready();
-		Layer = new CanvasLayer { Layer = 10, Name = "UILayer" };
+		ProcessMode = ProcessModeEnum.Always;
+		Layer = new CanvasLayer { Layer = 10, Name = "UILayer", ProcessMode = ProcessModeEnum.Always };
 		AddChild(Layer);
 
 		TryMountSettings();
@@ -66,6 +69,7 @@ public partial class UIManager : Singleton<UIManager>
 		{
 			if (!persistent.Contains(child))
 			{
+				Layer.RemoveChild(child);
 				child.QueueFree();
 			}
 		}
@@ -78,7 +82,7 @@ public partial class UIManager : Singleton<UIManager>
 		Add(CreateMenu());
 	}
 
-	public void OpenLobby(ENetLobbyDisplayType displayType)
+	public void OpenLobby(ENetLobbyDisplayType displayType, string notice = "")
 	{
 		MainLobbyPanel panel = CreateLobbyPanel();
 		if (panel == null)
@@ -87,8 +91,26 @@ public partial class UIManager : Singleton<UIManager>
 			return;
 		}
 
+		ClearTransient();
+		HideWaiting();
 		panel.DisplayType = displayType;
 		Add(panel);
+		panel.ShowNotice(notice);
+	}
+
+	public MainOnlineRoomPanel ShowOnlineRoom(ENetLobbyDisplayType displayType)
+	{
+		HideWaiting();
+		var scene = Main.Instance?.onlineRoomPanelScene;
+		if (scene == null && ResourceLoader.Exists(DefaultOnlineRoomPanelPath))
+			scene = GD.Load<PackedScene>(DefaultOnlineRoomPanelPath);
+		if (scene == null)
+			return null;
+
+		var panel = scene.Instantiate<MainOnlineRoomPanel>();
+		panel.DisplayType = displayType;
+		Add(panel);
+		return panel;
 	}
 
 	public void ShowWaiting()
@@ -110,6 +132,68 @@ public partial class UIManager : Singleton<UIManager>
 	public void HideWaiting()
 	{
 		waiting?.Hide();
+	}
+
+	public void ShowSettings()
+	{
+		if (settings == null || !GodotObject.IsInstanceValid(settings))
+		{
+			return;
+		}
+
+		if (settings is Settings panel)
+		{
+			panel.Present();
+		}
+		else
+		{
+			settings.Show();
+		}
+
+		RaiseSettings();
+	}
+
+	public void HideSettings()
+	{
+		if (settings == null || !GodotObject.IsInstanceValid(settings))
+		{
+			return;
+		}
+
+		if (settings is Settings panel)
+		{
+			panel.Dismiss();
+		}
+		else
+		{
+			settings.Hide();
+		}
+	}
+
+	public void ToggleSettings()
+	{
+		if (settings != null && settings.Visible)
+		{
+			HideSettings();
+		}
+		else
+		{
+			ShowSettings();
+		}
+	}
+
+	public bool IsSettingsOpen()
+	{
+		return settings != null && GodotObject.IsInstanceValid(settings) && settings.Visible;
+	}
+
+	public override void _UnhandledInput(InputEvent @event)
+	{
+		if (@event.IsActionPressed("ui_cancel") && IsSettingsOpen())
+		{
+			HideSettings();
+			GetViewport().SetInputAsHandled();
+		}
 	}
 
 	public void PlayTransition(bool forward)
@@ -200,6 +284,7 @@ public partial class UIManager : Singleton<UIManager>
 		}
 
 		settings = scene.Instantiate<Control>();
+		settings.Name = "Settings";
 		settings.Visible = false;
 		AddPersistent(settings);
 	}

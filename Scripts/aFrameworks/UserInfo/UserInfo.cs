@@ -1,378 +1,316 @@
 using Godot;
-using Godot.Collections;
-using System;
-using System.Collections.Generic;
+
+/// <summary>
+/// Player settings. Created by <see cref="Main"/>, not an Autoload.
+/// Locale, window, vsync, pixel snap, frame cap, and volume.
+/// </summary>
 public partial class UserInfo : Singleton<UserInfo>
 {
-    const string filePath = "user://userinfo.tscn";
+    public const string SavePath = "user://user_info.cfg";
+    public const string BusMusic = "Music";
+    public const string BusSfx = "SFX";
+    public const string WindowWindowed = "windowed";
+    public const string WindowBorderless = "borderless";
+    public const string WindowExclusive = "exclusive";
+
+    public string Locale = "en";
+    public string WindowMode = WindowBorderless;
+    public bool Vsync = true;
+    public bool IntegerScale;
+    public bool PixelSnap = true;
+    public int MaxFps;
+    public float MasterVolume = 1f;
+    public float MusicVolume = 1f;
+    public float SfxVolume = 1f;
+    public bool Muted;
+    public Viewport.Msaa Msaa3D = Viewport.Msaa.Disabled;
+    public bool UseDebanding;
+    public bool InvertLookY;
+
+    string appliedLocale = "";
 
     public static UserInfo LoadUserInfo()
     {
-        if (!ResourceLoader.Exists(filePath))
-        {
-            return CreateDefaultUserInfo();
-        }
-
-        try
-        {
-            var packedScene = ResourceLoader.Load<PackedScene>(filePath);
-            if (packedScene == null)
-            {
-                GD.PrintErr("加载用户信息失败：存档资源为空，已重置为默认设置");
-                return CreateDefaultUserInfo();
-            }
-
-            var res = packedScene.InstantiateOrNull<UserInfo>();
-            if (res == null)
-            {
-                GD.PrintErr("加载用户信息失败：无法实例化 UserInfo，已重置为默认设置");
-                return CreateDefaultUserInfo();
-            }
-
-            res.RepairInvalidData();
-            res.Init();
-            return res;
-        }
-        catch (Exception ex)
-        {
-            GD.PrintErr($"加载用户信息失败：{ex}，已重置为默认设置");
-            return CreateDefaultUserInfo();
-        }
-    }
-
-    static UserInfo CreateDefaultUserInfo()
-    {
-        var res = new UserInfo();
-        res.Init();
-        return res;
-    }
-
-    void RepairInvalidData()
-    {
-        masterVol = NormalizeFiniteValue(masterVol, 0);
-        bgVol = NormalizeFiniteValue(bgVol, 0);
-        effVol = NormalizeFiniteValue(effVol, 0);
-        maxFps = NormalizeMaxFps(maxFps);
-
-        if (!Enum.IsDefined(typeof(DisplayServer.WindowMode), windowMode))
-        {
-            windowMode = DisplayServer.WindowMode.Windowed;
-        }
-
-        if (!Enum.IsDefined(typeof(Language), language))
-        {
-            language = Language.en;
-        }
-
-        if (!Enum.IsDefined(typeof(Viewport.Msaa), msaa3D))
-        {
-            msaa3D = Viewport.Msaa.Disabled;
-        }
-
-    }
-    static float NormalizeFiniteValue(float value, float fallback)
-    {
-        return float.IsNaN(value) || float.IsInfinity(value) ? fallback : value;
-    }
-
-    static int NormalizeMaxFps(int value)
-    {
-        return value switch
-        {
-            30 => 30,
-            60 => 60,
-            90 => 90,
-            120 => 120,
-            144 => 144,
-            165 => 165,
-            240 => 240,
-            _ => 144
-        };
+        return new UserInfo();
     }
 
     public static void Save()
     {
-        if (Instance == null) return;
-        var ps = new PackedScene();
-        ps.Pack(Instance);
-        ResourceSaver.Save(ps, filePath);
-    }
-    [Export]
-    public bool hasSelectedLanguage = false;
-
-    [Export]
-    public float MasterVol
-    {
-        get
-        {
-            return masterVol;
-        }
-        set
-        {
-            masterVol = value;
-            if (!inited) return;
-            AudioServer.SetBusVolumeDb(0, masterVol);
-        }
-    }
-    float masterVol = 0;
-
-    [Export]
-    public float BgVol
-    {
-        get
-        {
-            return bgVol;
-        }
-        set
-        {
-            bgVol = value;
-            if (!inited) return;
-            AudioServer.SetBusVolumeDb(1, bgVol);
-        }
-    }
-    float bgVol;
-
-    [Export]
-    public float EffVol
-    {
-        get
-        {
-            return effVol;
-        }
-        set
-        {
-            effVol = value;
-            if (!inited) return;
-            AudioServer.SetBusVolumeDb(2, effVol);
-        }
-    }
-    float effVol;
-
-    [Export]
-    public DisplayServer.WindowMode WindowMode
-    {
-        get
-        {
-            return windowMode;
-        }
-        set
-        {
-            windowMode = value;
-            if (!inited) return;
-            DisplayServer.WindowSetMode(windowMode, 0);
-        }
-    }
-    DisplayServer.WindowMode windowMode = DisplayServer.WindowMode.Windowed;
-
-    [Export]
-    public Language Language
-    {
-        get
-        {
-            return language;
-        }
-        set
-        {
-            language = value;
-            if (!inited) return;
-            TranslationServer.SetLocale($"{language}");
-        }
-    }
-    Language language = Language.en;
-
-    [Export]
-    public bool VSyncEnabled
-    {
-        get
-        {
-            return vSyncEnabled;
-        }
-        set
-        {
-            vSyncEnabled = value;
-            if (!inited) return;
-            DisplayServer.WindowSetVsyncMode(
-                vSyncEnabled
-                    ? DisplayServer.VSyncMode.Enabled
-                    : DisplayServer.VSyncMode.Disabled
-            );
-        }
-    }
-    bool vSyncEnabled = false;
-
-    [Export]
-    public Viewport.Msaa Msaa3D
-    {
-        get
-        {
-            return msaa3D;
-        }
-        set
-        {
-            msaa3D = value;
-            if (!inited) return;
-            ApplyViewportSettings();
-        }
-    }
-    Viewport.Msaa msaa3D = Viewport.Msaa.Disabled;
-
-    [Export]
-    public bool UseDebanding
-    {
-        get
-        {
-            return useDebanding;
-        }
-        set
-        {
-            useDebanding = value;
-            if (!inited) return;
-            ApplyViewportSettings();
-        }
-    }
-    bool useDebanding = false;
-
-    [Export]
-    public int MaxFps
-    {
-        get
-        {
-            return maxFps;
-        }
-        set
-        {
-            maxFps = NormalizeMaxFps(value);
-            if (!inited) return;
-            Engine.MaxFps = maxFps;
-        }
-    }
-    int maxFps = 144;
-
-    bool inited = false;
-
-    public void Init()
-    {
-        inited = true;
-
-        if (AudioServer.BusCount == 1)
-        {
-            AudioServer.AddBus(1);
-            AudioServer.AddBus(2);
-            AudioServer.SetBusName(0, "master");
-            AudioServer.SetBusName(1, "bgm");
-            AudioServer.SetBusName(2, "eff");
-        }
-
-        WindowMode = windowMode;
-        Language = language;
-        VSyncEnabled = vSyncEnabled;
-        Msaa3D = msaa3D;
-        UseDebanding = useDebanding;
-        MaxFps = maxFps;
-        MasterVol = masterVol;
-        BgVol = bgVol;
-        EffVol = effVol;
-    }
-    public void TryShowLanguageSelect(Control root)
-    {
-        if (hasSelectedLanguage || root == null) return;
-        if (root.GetNodeOrNull<Control>("FirstLanguageSelect") != null) return;
-
-        var mask = new ColorRect();
-        mask.Name = "FirstLanguageSelect";
-        mask.Color = new Color(0, 0, 0, 0.75f);
-        mask.SetAnchorsPreset(Control.LayoutPreset.FullRect);
-        mask.MouseFilter = Control.MouseFilterEnum.Stop;
-
-        var panel = new PanelContainer();
-        panel.AnchorLeft = 0.5f;
-        panel.AnchorTop = 0.5f;
-        panel.AnchorRight = 0.5f;
-        panel.AnchorBottom = 0.5f;
-        panel.OffsetLeft = -170;
-        panel.OffsetTop = -180;
-        panel.OffsetRight = 170;
-        panel.OffsetBottom = 180;
-        mask.AddChild(panel);
-
-        var margin = new MarginContainer();
-        margin.AddThemeConstantOverride("margin_left", 16);
-        margin.AddThemeConstantOverride("margin_top", 16);
-        margin.AddThemeConstantOverride("margin_right", 16);
-        margin.AddThemeConstantOverride("margin_bottom", 16);
-        panel.AddChild(margin);
-
-        var vb = new VBoxContainer();
-        vb.AddThemeConstantOverride("separation", 6);
-        margin.AddChild(vb);
-
-        var title = new Label();
-        title.Text = "语言设置";
-        title.HorizontalAlignment = HorizontalAlignment.Center;
-        vb.AddChild(title);
-
-        Button firstBtn = null;
-        foreach (Language item in Enum.GetValues(typeof(Language)))
-        {
-            var btn = new Button();
-            btn.Text = GetLanguageDisplayName(item);
-            btn.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
-            btn.Pressed += () =>
-            {
-                Language = item;
-                hasSelectedLanguage = true;
-                Save();
-                mask.QueueFree();
-            };
-            vb.AddChild(btn);
-            firstBtn ??= btn;
-        }
-
-        root.AddChild(mask);
-        firstBtn?.CallDeferred(Button.MethodName.GrabFocus);
+        Instance?.SaveToDisk();
     }
 
-    string GetLanguageDisplayName(Language item)
+    public override void _EnterTree()
     {
-        return item switch
-        {
-            Language.en => "English",
-            Language.zh_CN => "简体中文",
-            Language.es => "Español",
-            Language.ja => "日本語",
-            Language.ko => "한국어",
-            Language.de => "Deutsch",
-            Language.zh_TW => "繁體中文",
-            Language.ru => "Русский",
-            Language.fr => "Français",
-            Language.pt_BR => "Português (Brasil)",
-            Language.it => "Italiano",
-            _ => $"{item}"
-        };
+        base._EnterTree();
+        LoadFromDisk();
     }
-    void ApplyViewportSettings()
+
+    public override void _Ready()
     {
-        var viewport = Main.Instance?.GetViewport();
-        if (viewport == null)
+        EnsureAudioBuses();
+        Apply();
+    }
+
+    public void LoadFromDisk()
+    {
+        var cfg = new ConfigFile();
+        Error err = cfg.Load(SavePath);
+        if (err != Error.Ok)
+        {
+            Locale = Localization.ResolveLocale("");
+            return;
+        }
+
+        Locale = Localization.ResolveLocale(cfg.GetValue("settings", "locale", Locale).AsString());
+        WindowMode = SanitizeWindowMode(cfg.GetValue("settings", "window_mode", WindowMode).AsString());
+        Vsync = cfg.GetValue("settings", "vsync", Vsync).AsBool();
+        IntegerScale = cfg.GetValue("settings", "integer_scale", IntegerScale).AsBool();
+        PixelSnap = cfg.GetValue("settings", "pixel_snap", PixelSnap).AsBool();
+        MaxFps = SanitizeMaxFps(cfg.GetValue("settings", "max_fps", MaxFps).AsInt32());
+        MasterVolume = SanitizeVolume(cfg.GetValue("settings", "master_volume", MasterVolume).AsSingle());
+        MusicVolume = SanitizeVolume(cfg.GetValue("settings", "music_volume", MusicVolume).AsSingle());
+        SfxVolume = SanitizeVolume(cfg.GetValue("settings", "sfx_volume", SfxVolume).AsSingle());
+        Muted = cfg.GetValue("settings", "muted", Muted).AsBool();
+        Msaa3D = SanitizeMsaa(cfg.GetValue("settings", "msaa_3d", (int)Msaa3D).AsInt32());
+        UseDebanding = cfg.GetValue("settings", "use_debanding", UseDebanding).AsBool();
+        InvertLookY = cfg.GetValue("settings", "invert_look_y", InvertLookY).AsBool();
+    }
+
+    public void SaveToDisk()
+    {
+        var cfg = new ConfigFile();
+        cfg.SetValue("meta", "version", 1);
+        cfg.SetValue("settings", "locale", Locale);
+        cfg.SetValue("settings", "window_mode", WindowMode);
+        cfg.SetValue("settings", "vsync", Vsync);
+        cfg.SetValue("settings", "integer_scale", IntegerScale);
+        cfg.SetValue("settings", "pixel_snap", PixelSnap);
+        cfg.SetValue("settings", "max_fps", MaxFps);
+        cfg.SetValue("settings", "master_volume", MasterVolume);
+        cfg.SetValue("settings", "music_volume", MusicVolume);
+        cfg.SetValue("settings", "sfx_volume", SfxVolume);
+        cfg.SetValue("settings", "muted", Muted);
+        cfg.SetValue("settings", "msaa_3d", (int)Msaa3D);
+        cfg.SetValue("settings", "use_debanding", UseDebanding);
+        cfg.SetValue("settings", "invert_look_y", InvertLookY);
+        Error err = cfg.Save(SavePath);
+        if (err != Error.Ok)
+        {
+            GD.PrintErr($"UserInfo: failed to save {SavePath} ({err})");
+        }
+    }
+
+    public void Apply()
+    {
+        ApplyLocale();
+        ApplyDisplay();
+        ApplyAudio();
+    }
+
+    public void ApplyLocale()
+    {
+        Locale = Localization.ResolveLocale(Locale);
+        if (appliedLocale == Locale)
         {
             return;
         }
 
-        viewport.Msaa3D = msaa3D;
-        viewport.UseDebanding = useDebanding;
+        appliedLocale = Locale;
+        TranslationServer.SetLocale(Locale);
     }
 
+    public void ApplyAndSave()
+    {
+        Apply();
+        SaveToDisk();
+    }
+
+    public void ResetToDefaults()
+    {
+        Locale = Localization.ResolveLocale("");
+        WindowMode = WindowBorderless;
+        Vsync = true;
+        IntegerScale = false;
+        PixelSnap = true;
+        MaxFps = 0;
+        MasterVolume = 1f;
+        MusicVolume = 1f;
+        SfxVolume = 1f;
+        Muted = false;
+        Msaa3D = Viewport.Msaa.Disabled;
+        UseDebanding = false;
+        InvertLookY = false;
+        ApplyAndSave();
+    }
 
     public void Reset()
     {
-        Language = Language.en;
-        WindowMode = DisplayServer.WindowMode.Fullscreen;
-        VSyncEnabled = false;
-        Msaa3D = Viewport.Msaa.Disabled;
-        UseDebanding = false;
-        MaxFps = 144;
-        MasterVol = 0;
-        BgVol = 0;
-        EffVol = 0;
+        ResetToDefaults();
+    }
+
+    public void ApplyDisplay()
+    {
+        if (DisplayServer.GetName() == "headless")
+        {
+            return;
+        }
+
+        Window win = GetWindow();
+        if (win == null)
+        {
+            return;
+        }
+
+        Window.ModeEnum wantedMode = WantedWindowMode();
+        if (!WindowModeMatches(win, wantedMode))
+        {
+            win.Mode = wantedMode;
+        }
+
+        DisplayServer.VSyncMode wantedVsync = Vsync
+            ? DisplayServer.VSyncMode.Enabled
+            : DisplayServer.VSyncMode.Disabled;
+        if (DisplayServer.WindowGetVsyncMode() != wantedVsync)
+        {
+            DisplayServer.WindowSetVsyncMode(wantedVsync);
+        }
+
+        Window.ContentScaleStretchEnum wantedStretch = IntegerScale
+            ? Window.ContentScaleStretchEnum.Integer
+            : Window.ContentScaleStretchEnum.Fractional;
+        if (win.ContentScaleStretch != wantedStretch)
+        {
+            win.ContentScaleStretch = wantedStretch;
+        }
+
+        Viewport vp = GetViewport();
+        if (vp != null)
+        {
+            if (vp.Snap2DTransformsToPixel != PixelSnap)
+            {
+                vp.Snap2DTransformsToPixel = PixelSnap;
+            }
+
+            if (vp.Snap2DVerticesToPixel != PixelSnap)
+            {
+                vp.Snap2DVerticesToPixel = PixelSnap;
+            }
+
+            if (vp.Msaa3D != Msaa3D)
+            {
+                vp.Msaa3D = Msaa3D;
+            }
+
+            if (vp.UseDebanding != UseDebanding)
+            {
+                vp.UseDebanding = UseDebanding;
+            }
+        }
+
+        int fps = Mathf.Max(MaxFps, 0);
+        if (Engine.MaxFps != fps)
+        {
+            Engine.MaxFps = fps;
+        }
+    }
+
+    public void ApplyAudio()
+    {
+        EnsureAudioBuses();
+        SetBusVolume("Master", MasterVolume);
+        SetBusVolume(BusMusic, MusicVolume);
+        SetBusVolume(BusSfx, SfxVolume);
+        int masterIdx = AudioServer.GetBusIndex("Master");
+        if (masterIdx >= 0)
+        {
+            AudioServer.SetBusMute(masterIdx, Muted);
+        }
+    }
+
+    public void EnsureAudioBuses()
+    {
+        EnsureBus(BusMusic);
+        EnsureBus(BusSfx);
+    }
+
+    Window.ModeEnum WantedWindowMode()
+    {
+        return WindowMode switch
+        {
+            WindowBorderless => Window.ModeEnum.Fullscreen,
+            WindowExclusive => Window.ModeEnum.ExclusiveFullscreen,
+            _ => Window.ModeEnum.Windowed,
+        };
+    }
+
+    static bool WindowModeMatches(Window win, Window.ModeEnum wanted)
+    {
+        if (wanted == Window.ModeEnum.Windowed)
+        {
+            return win.Mode != Window.ModeEnum.Fullscreen
+                && win.Mode != Window.ModeEnum.ExclusiveFullscreen;
+        }
+
+        return win.Mode == wanted;
+    }
+
+    static void EnsureBus(string busName)
+    {
+        if (AudioServer.GetBusIndex(busName) >= 0)
+        {
+            return;
+        }
+
+        AudioServer.AddBus();
+        int idx = AudioServer.BusCount - 1;
+        AudioServer.SetBusName(idx, busName);
+        AudioServer.SetBusSend(idx, "Master");
+    }
+
+    static void SetBusVolume(string busName, float linear)
+    {
+        int idx = AudioServer.GetBusIndex(busName);
+        if (idx < 0)
+        {
+            return;
+        }
+
+        float clamped = Mathf.Clamp(linear, 0f, 1f);
+        AudioServer.SetBusVolumeDb(idx, clamped <= 0.0001f ? -80f : Mathf.LinearToDb(clamped));
+    }
+
+    static string SanitizeWindowMode(string value)
+    {
+        return value switch
+        {
+            WindowBorderless or WindowExclusive or WindowWindowed => value,
+            _ => WindowBorderless,
+        };
+    }
+
+    static float SanitizeVolume(float value)
+    {
+        if (float.IsNaN(value) || float.IsInfinity(value))
+        {
+            return 1f;
+        }
+
+        return Mathf.Clamp(value, 0f, 1f);
+    }
+
+    static int SanitizeMaxFps(int value)
+    {
+        return Mathf.Max(value, 0);
+    }
+
+    static Viewport.Msaa SanitizeMsaa(int value)
+    {
+        return value switch
+        {
+            (int)Viewport.Msaa.Msaa2X => Viewport.Msaa.Msaa2X,
+            (int)Viewport.Msaa.Msaa4X => Viewport.Msaa.Msaa4X,
+            (int)Viewport.Msaa.Msaa8X => Viewport.Msaa.Msaa8X,
+            _ => Viewport.Msaa.Disabled,
+        };
     }
 }

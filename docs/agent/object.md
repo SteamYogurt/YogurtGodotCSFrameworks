@@ -26,3 +26,5 @@ bool exists = ObjectPoolManager.Exists("Player");
 `GetPossibleObject` 和 `ReturnObjectToPool` 是同一套入口的旧名字。只预热、不走懒加载时用 `GetObject`。
 
 `GetObjectReadOnly` 只查看队首，不会把对象取出。
+
+`ObjectPoolManager` 出树时释放池内待复用的实例，包括已脱离场景树的玩家节点。

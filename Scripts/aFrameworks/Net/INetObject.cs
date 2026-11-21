@@ -14,6 +14,12 @@ public interface INetObject : IGameObject
         return false;
     }
 
+    /// <summary>主机用传输层确认的 peer id 校验对象输入权。</summary>
+    public bool CanReceiveInputFrom(ulong peerId) => false;
+
+    /// <summary>主机在投递或中继对象 RPC / Custom 前调用。</summary>
+    public bool CanReceiveRemoteCallFrom(ulong peerId) => true;
+
     /// <summary>
     /// 中途加入快照发送优先级；数值越大越先发送。默认 0。
     /// </summary>

@@ -1,220 +1,245 @@
 using Godot;
-using System;
 
 public partial class Settings : Control
 {
-    /* ---------------- GamePlay ---------------- */
+    static readonly string[] WindowIds =
+    {
+        UserInfo.WindowWindowed,
+        UserInfo.WindowBorderless,
+        UserInfo.WindowExclusive,
+    };
 
     [Export] OptionButton Language;
     [Export] OptionButton WindowMode;
-
-    /* ---------------- Audio ---------------- */
+    [Export] CheckBox reverseYCheck;
 
     [Export] HSlider MasterSlider;
     [Export] HSlider BgSlider;
     [Export] HSlider EffSlider;
 
-    /* ---------------- Visual ---------------- */
-
     [Export] OptionButton Resolution;
     [Export] CheckBox VSync;
     [Export] OptionButton Msaa;
 
-    /* ---------------- Other ---------------- */
-
     [Export] Button ResetButton;
     [Export] Button ReturnButton;
 
-    bool loading = false;
+    bool loading;
 
     public override void _Ready()
     {
-        VisibilityChanged += () =>
-        {
-            if (Visible)
-            {
-                //var first = Global.FindFirstFocusableNode(this);
-                //first?.GrabFocus();
-                //if (first == null)
-                //{
-                //    GD.PrintErr("settings 界面没找到可聚焦");
-                //}
-            }
-        };
-
+        ProcessMode = ProcessModeEnum.Always;
         InitGamePlay();
         InitAudio();
         InitVisual();
-
         ResetButton.Pressed += ResetToDefault;
-        ReturnButton.Pressed += Hide;
-        LoadFromUserInfo();
+        ReturnButton.Pressed += () => UIManager.Instance?.HideSettings();
+        Hide();
     }
 
-    /* ---------------- GamePlay ---------------- */
+    public void Present()
+    {
+        LoadFromUserInfo();
+        Show();
+    }
+
+    public void Dismiss()
+    {
+        Hide();
+    }
 
     void InitGamePlay()
     {
-        //foreach (Language l in Enum.GetValues(typeof(Language)))
-        //    Language.AddItem(l.ToString());
-
-        WindowMode.AddItem("Windowed");
-        WindowMode.AddItem("Fullscreen");
-        WindowMode.AddItem("ExclusiveFullscreen");
+        Language.Clear();
+        for (int i = 0; i < Localization.Locales.Length; i++)
+        {
+            Language.AddItem(Localization.NativeName(Localization.Locales[i]), i);
+        }
 
         Language.ItemSelected += id =>
         {
-            if (loading) return;
+            if (loading || UserInfo.Instance == null)
+            {
+                return;
+            }
 
-            UserInfo.Instance.Language = (Language)id;
+            if (id < 0 || id >= Localization.Locales.Length)
+            {
+                return;
+            }
+
+            UserInfo.Instance.Locale = Localization.Locales[id];
+            UserInfo.Instance.ApplyLocale();
+            UserInfo.Instance.SaveToDisk();
         };
+
+        WindowMode.Clear();
+        WindowMode.AddItem("窗口");
+        WindowMode.AddItem("无边框全屏");
+        WindowMode.AddItem("独占全屏");
 
         WindowMode.ItemSelected += id =>
         {
-            if (loading) return;
-
-            var mode = id switch
+            if (loading || UserInfo.Instance == null)
             {
-                0 => DisplayServer.WindowMode.Windowed,
-                1 => DisplayServer.WindowMode.Fullscreen,
-                2 => DisplayServer.WindowMode.ExclusiveFullscreen,
-                _ => DisplayServer.WindowMode.Windowed
-            };
+                return;
+            }
 
-            UserInfo.Instance.WindowMode = mode;
+            if (id < 0 || id >= WindowIds.Length)
+            {
+                return;
+            }
+
+            UserInfo.Instance.WindowMode = WindowIds[id];
+            UserInfo.Instance.ApplyDisplay();
+            UserInfo.Instance.SaveToDisk();
         };
 
-    }
+        if (reverseYCheck != null)
+        {
+            reverseYCheck.Toggled += on =>
+            {
+                if (loading || UserInfo.Instance == null)
+                {
+                    return;
+                }
 
-    /* ---------------- Audio ---------------- */
+                UserInfo.Instance.InvertLookY = on;
+                UserInfo.Instance.SaveToDisk();
+            };
+        }
+    }
 
     void InitAudio()
     {
-        SetupSlider(MasterSlider, v =>
-        {
-            UserInfo.Instance.MasterVol = Global.GetDb(v);
-        });
-
-        SetupSlider(BgSlider, v =>
-        {
-            UserInfo.Instance.BgVol = Global.GetDb(v);
-        });
-
-        SetupSlider(EffSlider, v =>
-        {
-            UserInfo.Instance.EffVol = Global.GetDb(v);
-        });
+        SetupSlider(MasterSlider, v => UserInfo.Instance.MasterVolume = v, () => UserInfo.Instance.ApplyAudio());
+        SetupSlider(BgSlider, v => UserInfo.Instance.MusicVolume = v, () => UserInfo.Instance.ApplyAudio());
+        SetupSlider(EffSlider, v => UserInfo.Instance.SfxVolume = v, () => UserInfo.Instance.ApplyAudio());
     }
 
-    void SetupSlider(HSlider slider, Action<float> onChange)
+    void SetupSlider(HSlider slider, System.Action<float> assign, System.Action apply)
     {
         slider.MinValue = 0;
         slider.MaxValue = 100;
         slider.Step = 1;
-
         slider.ValueChanged += v =>
         {
-            if (loading) return;
-            onChange((float)v);
+            if (loading || UserInfo.Instance == null)
+            {
+                return;
+            }
+
+            assign(Mathf.Clamp((float)v / 100f, 0f, 1f));
+            apply();
+        };
+        slider.DragEnded += _ =>
+        {
+            if (loading)
+            {
+                return;
+            }
+
+            UserInfo.Instance?.SaveToDisk();
         };
     }
 
-    /* ---------------- Visual ---------------- */
-
     void InitVisual()
     {
-        foreach (EResolution r in Enum.GetValues(typeof(EResolution)))
-            Resolution.AddItem(r.ToString());
-
-        Resolution.ItemSelected += id =>
+        if (Resolution != null)
         {
-            if (loading) return;
-            //UserInfo.Instance.Resolution = (EResolution)id;
+            if (Resolution.GetParent() is CanvasItem parent)
+            {
+                parent.Hide();
+            }
+            else
+            {
+                Resolution.Hide();
+            }
+        }
+
+        VSync.Toggled += on =>
+        {
+            if (loading || UserInfo.Instance == null)
+            {
+                return;
+            }
+
+            UserInfo.Instance.Vsync = on;
+            UserInfo.Instance.ApplyDisplay();
+            UserInfo.Instance.SaveToDisk();
         };
 
-        VSync.Toggled += v =>
-        {
-            if (loading) return;
-
-            DisplayServer.WindowSetVsyncMode(
-                v ? DisplayServer.VSyncMode.Enabled
-                  : DisplayServer.VSyncMode.Disabled
-            );
-        };
-
+        Msaa.Clear();
         Msaa.AddItem("Off");
         Msaa.AddItem("2x");
         Msaa.AddItem("4x");
         Msaa.AddItem("8x");
-
         Msaa.ItemSelected += id =>
         {
-            if (loading) return;
+            if (loading || UserInfo.Instance == null)
+            {
+                return;
+            }
 
-            var mode = id switch
+            UserInfo.Instance.Msaa3D = id switch
             {
                 1 => Viewport.Msaa.Msaa2X,
                 2 => Viewport.Msaa.Msaa4X,
                 3 => Viewport.Msaa.Msaa8X,
-                _ => Viewport.Msaa.Disabled
+                _ => Viewport.Msaa.Disabled,
             };
-
-            GetViewport().Msaa3D = mode;
+            UserInfo.Instance.ApplyDisplay();
+            UserInfo.Instance.SaveToDisk();
         };
     }
-
-    /* ---------------- Load ---------------- */
 
     void LoadFromUserInfo()
     {
-        loading = true;
-
-        var u = UserInfo.Instance;
-
-        Language.Select((int)u.Language);
-
-        int wm = u.WindowMode switch
+        if (UserInfo.Instance == null)
         {
-            DisplayServer.WindowMode.Windowed => 0,
-            DisplayServer.WindowMode.Maximized => 1,
-            DisplayServer.WindowMode.ExclusiveFullscreen => 2,
-            _ => 0
-        };
+            return;
+        }
 
-        WindowMode.Select(wm);
+        loading = true;
+        UserInfo u = UserInfo.Instance;
 
-        MasterSlider.Value = Global.GetVolValue(u.MasterVol);
-        BgSlider.Value = Global.GetVolValue(u.BgVol);
-        EffSlider.Value = Global.GetVolValue(u.EffVol);
+        int locIdx = Localization.IndexOf(u.Locale);
+        if (locIdx >= 0)
+        {
+            Language.Select(locIdx);
+        }
 
-        //Resolution.Select((int)u.Resolution);
+        int wm = System.Array.IndexOf(WindowIds, u.WindowMode);
+        WindowMode.Select(wm >= 0 ? wm : 0);
 
+        if (reverseYCheck != null)
+        {
+            reverseYCheck.SetPressedNoSignal(u.InvertLookY);
+        }
+
+        MasterSlider.Value = u.MasterVolume * 100f;
+        BgSlider.Value = u.MusicVolume * 100f;
+        EffSlider.Value = u.SfxVolume * 100f;
+
+        VSync.SetPressedNoSignal(u.Vsync);
+        Msaa.Select(MsaaIndex(u.Msaa3D));
         loading = false;
     }
 
-    /* ---------------- Reset ---------------- */
+    static int MsaaIndex(Viewport.Msaa mode)
+    {
+        return mode switch
+        {
+            Viewport.Msaa.Msaa2X => 1,
+            Viewport.Msaa.Msaa4X => 2,
+            Viewport.Msaa.Msaa8X => 3,
+            _ => 0,
+        };
+    }
 
     void ResetToDefault()
     {
-        UserInfo.Instance.Reset();
-        DisplayServer.WindowSetVsyncMode(DisplayServer.VSyncMode.Enabled);
-        GetViewport().Msaa3D = Viewport.Msaa.Disabled;
+        UserInfo.Instance?.ResetToDefaults();
         LoadFromUserInfo();
-
-        UserInfo.Save();
-    }
-    
-    public override void _ExitTree()
-    {
-        UserInfo.Save();
-    }
-
-    public override void _Input(InputEvent @event)
-    {
-        if (Visible && @event.IsActionPressed("ui_cancel"))
-        {
-            Hide();
-            AcceptEvent();
-        }
     }
 }

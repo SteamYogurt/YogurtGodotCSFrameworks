@@ -10,6 +10,7 @@ public partial class MainLobbyCreatePanel : Control
     [Export] public SpinBox maxPlayersSpin;
     [Export] public CheckBox midJoinableCheck;
     [Export] public OptionButton visibilityOption;
+    [Export] public Control visibilityRow;
     [Export] public Button createButton;
     [Export] public Button cancelButton;
 
@@ -40,6 +41,7 @@ public partial class MainLobbyCreatePanel : Control
             cancelButton.Pressed += OnCancelPressed;
 
         VisibilityChanged += OnVisibilityChanged;
+        OnVisibilityChanged();
     }
 
     void InitializeVisibilityOption()
@@ -49,10 +51,9 @@ public partial class MainLobbyCreatePanel : Control
 
         visibilityInitialized = true;
         visibilityOption.Clear();
-        foreach (EGameLobbyType type in Enum.GetValues(typeof(EGameLobbyType)))
-        {
-            visibilityOption.AddItem(type.ToString());
-        }
+        visibilityOption.AddItem("公开", (int)EGameLobbyType.Public);
+        visibilityOption.AddItem("仅受邀", (int)EGameLobbyType.Private);
+        visibilityOption.AddItem("仅好友", (int)EGameLobbyType.FriendsOnly);
         visibilityOption.Selected = 0;
     }
 
@@ -61,10 +62,12 @@ public partial class MainLobbyCreatePanel : Control
         if (modeLabel != null)
             modeLabel.Text = DisplayType == ENetLobbyDisplayType.Steam ? "创建 Steam 房间" : "创建 LAN 房间";
 
-        if (roomNameEdit != null && string.IsNullOrWhiteSpace(roomNameEdit.Text))
-            roomNameEdit.Text = DisplayType == ENetLobbyDisplayType.Steam ? "Steam Room" : "LAN Room";
+        if (roomNameEdit != null)
+            roomNameEdit.PlaceholderText = OnlineRoomListing.FallbackRoomName(DisplayType);
 
-        if (visibilityOption != null)
+        if (visibilityRow != null)
+            visibilityRow.Visible = DisplayType == ENetLobbyDisplayType.Steam;
+        else if (visibilityOption != null)
             visibilityOption.Disabled = DisplayType == ENetLobbyDisplayType.Lan;
     }
 
@@ -82,19 +85,14 @@ public partial class MainLobbyCreatePanel : Control
 
     EGameLobbyType GetVisibility()
     {
-        if (visibilityOption == null)
-            return EGameLobbyType.Public;
-
-        return visibilityOption.Selected switch
-        {
-            1 => EGameLobbyType.Private,
-            2 => EGameLobbyType.FriendsOnly,
-            _ => EGameLobbyType.Public,
-        };
+        return visibilityOption is { Selected: >= 0 } option
+            ? (EGameLobbyType)option.GetSelectedId()
+            : EGameLobbyType.Public;
     }
 
     void OnCancelPressed()
     {
+        Hide();
         returnPanel?.RestoreFromCreatePanel();
         QueueFree();
     }

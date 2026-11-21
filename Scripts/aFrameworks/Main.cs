@@ -1,12 +1,6 @@
 using System;
 using Godot;
 
-public enum ENetLobbyDisplayType
-{
-    Steam,
-    Lan
-}
-
 public partial class Main : Singleton<Main>
 {
     public LanDiscoveryService lanDiscoveryService;
@@ -24,6 +18,8 @@ public partial class Main : Singleton<Main>
     public PackedScene settingsScene;
     [Export]
     public PackedScene lobbyPanelScene;
+    [Export]
+    public PackedScene onlineRoomPanelScene;
 
     public CanvasLayer uiLayer => UIManager.Instance?.Layer;
 
@@ -52,26 +48,32 @@ public partial class Main : Singleton<Main>
         AddChild(new ObjectPoolManager());
         AddChild(new NetManager());
         AddChild(new TransportManager());
-        TransportManager.Instance.Kicked += OnKicked;
         AddChild(new InputManager());
-        AddChild(new SteamManager());
+        if (GetNodeOrNull<SteamManager>("SteamManager") == null)
+            AddChild(new SteamManager());
         lanDiscoveryService = new LanDiscoveryService();
         AddChild(lanDiscoveryService);
         AddChild(new UIManager());
 
         if (bgmPlayer != null)
         {
-            bgmPlayer.Bus = "bg";
+            bgmPlayer.Bus = UserInfo.BusMusic;
             bgmPlayer.Play();
         }
     }
 
     public void AddGame(Node game)
     {
+        waitingForSessionUntil = 0;
         AddChild(game);
         if (UIManager.Instance != null)
         {
             MoveChild(UIManager.Instance, GetChildCount() - 1);
         }
+
+        if (game is Game { IsOnline: true } onlineGame)
+            ShowOnlineRoom(onlineGame);
+        else
+            UIManager.Instance?.HideWaiting();
     }
 }

@@ -19,6 +19,8 @@ public class RoomFlowRequest
 public partial class Main
 {
     RoomFlowRequest currentRoomFlowRequest;
+    ENetLobbyDisplayType roomDisplayType;
+    ulong waitingForSessionUntil;
 
     public event Action<GameOnlineContext, ENetLobbyDisplayType> OnlineRoomCreated;
     public event Action<ENetLobbyDisplayType> OnlineRoomJoined;
@@ -70,6 +72,7 @@ public partial class Main
             return;
 
         lanDiscoveryService?.StopAll();
+        roomDisplayType = request.DisplayType;
         UIManager.Instance.HideWaiting();
         StopObservingTransport();
         NetManager.Instance.Start();
@@ -81,12 +84,19 @@ public partial class Main
                 var context = OnlineRoomContextApply.Normalize(request.Context, request.DisplayType);
                 request.Context = context;
                 steamTransport.PendingCreateMaxPlayers = context.MaxPlayers;
+                steamTransport.PendingCreateMidJoinable = context.MidJoinable;
                 steamTransport.PendingCreateLobbyType = SteamManager.ToSteamLobbyType(context.Visibility);
             }
         }
         else
         {
             TransportManager.Instance.UseLan();
+            if (request.ActionType == ERoomFlowActionType.Create
+                && TransportManager.Instance.Current is LanTransport lanTransport)
+            {
+                request.Context = OnlineRoomContextApply.Normalize(request.Context, request.DisplayType);
+                lanTransport.MaxPlayers = request.Context.MaxPlayers;
+            }
         }
 
         ObserveCurrentTransport();
@@ -107,6 +117,8 @@ public partial class Main
             return;
         TransportManager.Instance.RoomJoined += OnCurrentTransportRoomJoined;
         TransportManager.Instance.RoomJoinFailed += OnCurrentTransportRoomJoinFailed;
+        TransportManager.Instance.HostQuit += OnCurrentTransportHostQuit;
+        TransportManager.Instance.Kicked += OnKicked;
     }
 
     void StopObservingTransport()
@@ -115,6 +127,8 @@ public partial class Main
             return;
         TransportManager.Instance.RoomJoined -= OnCurrentTransportRoomJoined;
         TransportManager.Instance.RoomJoinFailed -= OnCurrentTransportRoomJoinFailed;
+        TransportManager.Instance.HostQuit -= OnCurrentTransportHostQuit;
+        TransportManager.Instance.Kicked -= OnKicked;
     }
 
     void OnCurrentTransportRoomJoined()
@@ -140,18 +154,32 @@ public partial class Main
 
         var displayType = currentRoomFlowRequest?.DisplayType ?? ENetLobbyDisplayType.Lan;
         currentRoomFlowRequest = null;
+        waitingForSessionUntil = Time.GetTicksMsec() + 15000;
         OnlineRoomJoined?.Invoke(displayType);
     }
 
-    void OnCurrentTransportRoomJoinFailed()
+    public override void _Process(double delta)
     {
-        Main.Print("进入房间失败，返回菜单");
-        HandleRoomJoinFailed();
+        if (waitingForSessionUntil != 0 && Time.GetTicksMsec() >= waitingForSessionUntil)
+            OnCurrentTransportRoomJoinFailed();
     }
 
-    void HandleRoomJoinFailed()
+    void OnCurrentTransportHostQuit() => ReturnToLobby("与房主的连接已断开。");
+
+    void OnKicked() => ReturnToLobby("房主已将你移出房间。");
+
+    void OnCurrentTransportRoomJoinFailed()
     {
-        currentRoomFlowRequest = null;
-        ResetAndReturnToMenu();
+        var transport = TransportManager.Instance.Current;
+        string notice = transport switch
+        {
+            { LastJoinWasBlocked: true } => "房主已禁止你重新加入此房间。",
+            _ when waitingForSessionUntil != 0 => "等待房间同步超时。",
+            SteamTransport steam when !string.IsNullOrEmpty(steam.LastRoomFailMessageKey)
+                => steam.LastRoomFailMessageKey + "。",
+            _ when currentRoomFlowRequest?.ActionType == ERoomFlowActionType.Create => "创建房间失败。",
+            _ => "无法加入房间。请检查地址或刷新房间列表。",
+        };
+        ReturnToLobby(notice);
     }
 }

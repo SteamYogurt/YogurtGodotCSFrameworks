@@ -4,16 +4,16 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
-using System.Text;
 using System.Text.Json;
 using System.Threading;
 
 public class LanRoomBroadcastData
 {
     public string GameId { get; set; } = "";
+    public int ProtocolVersion { get; set; }
     public string RoomName { get; set; } = "";
     public string HostAddress { get; set; } = "";
-    public int Port { get; set; } = 7777;
+    public int Port { get; set; } = LanTransport.DefaultPort;
 
     public int PlayerCount { get; set; }
     public int MaxPlayers { get; set; }
@@ -34,7 +34,10 @@ public partial class LanDiscoveryService : Node
     private const int BroadcastIntervalMs = 1000;
     private const int RoomTimeoutMs = 3500;
     private const int CleanupIntervalMs = 1000;
-    private const int GamePort = 7777;
+    private const int GamePort = LanTransport.DefaultPort;
+    private const int MaxDiscoveryBytes = 4096;
+    private const int MaxDiscoveredRooms = 256;
+    private static readonly IPEndPoint BroadcastEndpoint = new(IPAddress.Broadcast, DiscoveryPort);
 
     public event Action RoomsChanged;
 
@@ -42,19 +45,16 @@ public partial class LanDiscoveryService : Node
     private readonly Dictionary<string, LanDiscoveredRoomInfo> rooms = new();
 
     private UdpClient browseClient;
-    private Thread browseThread;
-    private volatile bool browsing;
 
     private UdpClient hostClient;
-    private Thread hostThread;
-    private volatile bool hosting;
+    private long nextBroadcastAt;
 
-    private volatile bool roomsDirty;
+    private int roomsDirty;
     private long nextCleanupAtUnixMs;
 
     private string hostRoomName = "LAN Room";
 
-    public bool IsHosting => hosting;
+    public bool IsHosting => hostClient != null;
     public string CurrentHostRoomName => hostRoomName;
 
     public override void _ExitTree()
@@ -65,52 +65,52 @@ public partial class LanDiscoveryService : Node
 
     public override void _Process(double delta)
     {
-        bool changed = CleanupExpiredRooms();
-        if (roomsDirty || changed)
+        if (IsHosting && System.Environment.TickCount64 >= nextBroadcastAt)
         {
-            roomsDirty = false;
-            RoomsChanged?.Invoke();
+            nextBroadcastAt = System.Environment.TickCount64 + BroadcastIntervalMs;
+            BroadcastRoom();
         }
+        bool changed = CleanupExpiredRooms();
+        if (Interlocked.Exchange(ref roomsDirty, 0) != 0 || changed)
+            RoomsChanged?.Invoke();
     }
 
     public void StartBrowsing()
     {
-        if (browsing) return;
+        if (browseClient != null) return;
 
         ClearRooms();
 
-        browseClient = new UdpClient(AddressFamily.InterNetwork);
-        browseClient.Client.ExclusiveAddressUse = false;
-        browseClient.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
-        browseClient.Client.Bind(new IPEndPoint(IPAddress.Any, DiscoveryPort));
-
-        browsing = true;
-        browseThread = new Thread(BrowseLoop)
+        var client = new UdpClient(AddressFamily.InterNetwork);
+        try
         {
-            IsBackground = true
-        };
-        browseThread.Start();
+            client.Client.ExclusiveAddressUse = false;
+            client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+            client.Client.Bind(new IPEndPoint(IPAddress.Any, DiscoveryPort));
+        }
+        catch (SocketException e)
+        {
+            client.Dispose();
+            GD.PrintErr($"[LanDiscovery] 无法监听发现端口: {e.Message}");
+            return;
+        }
+
+        lock (roomsLock)
+            browseClient = client;
+        new Thread(() => BrowseLoop(client)) { IsBackground = true }.Start();
 
         GD.Print("[LanDiscovery] Start browsing.");
     }
 
     public void StopBrowsing()
     {
-        browsing = false;
-
-        try
+        UdpClient previous;
+        lock (roomsLock)
         {
-            browseClient?.Close();
+            previous = browseClient;
+            browseClient = null;
         }
-        catch
-        {
-        }
-
-        if (browseThread != null && browseThread.IsAlive)
-            browseThread.Join(100);
-
-        browseThread = null;
-        browseClient = null;
+        previous?.Dispose();
 
         ClearRooms();
         GD.Print("[LanDiscovery] Stop browsing.");
@@ -120,17 +120,13 @@ public partial class LanDiscoveryService : Node
     {
         hostRoomName = OnlineRoomListing.ResolveRoomName(roomName, ENetLobbyDisplayType.Lan);
 
-        if (hosting) return;
+        if (IsHosting) return;
 
         hostClient = new UdpClient();
         hostClient.EnableBroadcast = true;
 
-        hosting = true;
-        hostThread = new Thread(HostLoop)
-        {
-            IsBackground = true
-        };
-        hostThread.Start();
+        hostClient.Client.Blocking = false;
+        nextBroadcastAt = 0;
 
         GD.Print("[LanDiscovery] Start hosting broadcast.");
     }
@@ -142,20 +138,7 @@ public partial class LanDiscoveryService : Node
 
     public void StopHosting()
     {
-        hosting = false;
-
-        try
-        {
-            hostClient?.Close();
-        }
-        catch
-        {
-        }
-
-        if (hostThread != null && hostThread.IsAlive)
-            hostThread.Join(100);
-
-        hostThread = null;
+        hostClient?.Dispose();
         hostClient = null;
 
         GD.Print("[LanDiscovery] Stop hosting broadcast.");
@@ -184,68 +167,66 @@ public partial class LanDiscoveryService : Node
         {
             rooms.Clear();
         }
-        roomsDirty = true;
+        Interlocked.Exchange(ref roomsDirty, 1);
     }
 
-    private void HostLoop()
+    private void BroadcastRoom()
     {
-        while (hosting)
+        if (!TryBuildBroadcastData(out var data))
+            return;
+        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(data);
+        if (bytes.Length > MaxDiscoveryBytes)
+            return;
+        try
         {
-            try
-            {
-                if (TryBuildBroadcastData(out var data))
-                {
-                    string json = JsonSerializer.Serialize(data);
-                    byte[] bytes = Encoding.UTF8.GetBytes(json);
-                    hostClient.Send(
-                        bytes,
-                        bytes.Length,
-                        new IPEndPoint(IPAddress.Broadcast, DiscoveryPort)
-                    );
-                }
-            }
-            catch (Exception e)
-            {
-                if (hosting)
-                    GD.PrintErr("[LanDiscovery] HostLoop Error: " + e.Message);
-            }
-
-            Thread.Sleep(BroadcastIntervalMs);
+            hostClient.Send(bytes, bytes.Length, BroadcastEndpoint);
+        }
+        catch (SocketException e) when (e.SocketErrorCode == SocketError.WouldBlock) { }
+        catch (SocketException e)
+        {
+            GD.PrintErr($"[LanDiscovery] 房间广播失败: {e.Message}");
         }
     }
 
-    private void BrowseLoop()
+    private void BrowseLoop(UdpClient client)
     {
         IPEndPoint remote = new IPEndPoint(IPAddress.Any, 0);
 
-        while (browsing)
+        while (true)
         {
             try
             {
-                byte[] bytes = browseClient.Receive(ref remote);
+                byte[] bytes = client.Receive(ref remote);
                 if (!TryParseBroadcast(bytes, remote, out var room))
                     continue;
 
                 lock (roomsLock)
                 {
+                    if (!ReferenceEquals(browseClient, client))
+                        return;
                     string key = GetRoomKey(room.HostAddress, room.Port);
+                    if (rooms.Count >= MaxDiscoveredRooms && !rooms.ContainsKey(key))
+                        continue;
                     rooms[key] = room;
                 }
 
-                roomsDirty = true;
+                Interlocked.Exchange(ref roomsDirty, 1);
             }
             catch (ObjectDisposedException)
             {
                 break;
             }
-            catch (SocketException)
+            catch (SocketException e)
             {
-                if (!browsing) break;
-            }
-            catch (Exception e)
-            {
-                if (browsing)
-                    GD.PrintErr("[LanDiscovery] BrowseLoop Error: " + e.Message);
+                lock (roomsLock)
+                {
+                    if (!ReferenceEquals(browseClient, client))
+                        return;
+                    browseClient = null;
+                }
+                client.Dispose();
+                GD.PrintErr($"[LanDiscovery] 发现端口已关闭: {e.Message}");
+                return;
             }
         }
     }
@@ -264,12 +245,13 @@ public partial class LanDiscoveryService : Node
         data = new LanRoomBroadcastData
         {
             GameId = OnlineRoomListing.GameId,
+            ProtocolVersion = NetWireLimits.ProtocolVersion,
             RoomName = hostRoomName,
             HostAddress = "",
             Port = GamePort,
             PlayerCount = playerCount,
             MaxPlayers = presence?.MaxPlayers ?? 0,
-            Joinable = presence?.Joinable ?? true,
+            Joinable = presence?.AllowsJoining ?? true,
             MidJoinable = presence?.MidJoinable ?? true,
             InMatch = presence?.InMatch ?? false,
             MatchId = presence?.MatchId ?? "",
@@ -281,23 +263,26 @@ public partial class LanDiscoveryService : Node
     private bool TryParseBroadcast(byte[] bytes, IPEndPoint remote, out LanDiscoveredRoomInfo room)
     {
         room = null;
+        if (bytes.Length > MaxDiscoveryBytes)
+            return false;
 
         try
         {
-            string json = Encoding.UTF8.GetString(bytes);
-            var data = JsonSerializer.Deserialize<LanRoomBroadcastData>(json);
+            var data = JsonSerializer.Deserialize<LanRoomBroadcastData>(bytes);
             if (data == null)
                 return false;
 
             if (!OnlineRoomListing.HasUsableRoomName(data.RoomName))
                 return false;
 
-            if (!string.IsNullOrEmpty(data.GameId) && !OnlineRoomListing.IsOurGame(data.GameId))
+            if (!OnlineRoomListing.IsOurGame(data.GameId) || data.ProtocolVersion != NetWireLimits.ProtocolVersion
+                || data.Port != GamePort)
                 return false;
 
             room = new LanDiscoveredRoomInfo
             {
                 GameId = data.GameId ?? "",
+                ProtocolVersion = data.ProtocolVersion,
                 RoomName = data.RoomName.Trim(),
                 HostAddress = remote.Address.ToString(),
                 Port = data.Port <= 0 ? GamePort : data.Port,

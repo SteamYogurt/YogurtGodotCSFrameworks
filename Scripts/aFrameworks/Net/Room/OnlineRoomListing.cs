@@ -9,6 +9,8 @@ public static class OnlineRoomListing
     public const string GameId = "YogurtGodotFrameworks";
 
     public const string KeyGameId = "game_id";
+    public const string KeyProtocolVersion = "protocol";
+    public static readonly string ProtocolVersion = NetWireLimits.ProtocolVersion.ToString();
     public const string KeyRoomName = "room_name";
     public const string KeyJoinable = "joinable";
     public const string KeyMidJoinable = "mid_joinable";
@@ -100,24 +102,16 @@ public static class OnlineRoomListing
         if (room == null)
             return null;
 
-        bool hasListingV2 = IsOurGame(room.GameId);
-        bool inMatch = room.InMatch;
-        bool midJoinable = hasListingV2 ? room.MidJoinable : true;
-        int limit = room.MaxPlayers;
-        bool canJoin = hasListingV2
-            ? CanJoin(room.PlayerCount, limit, inMatch, midJoinable)
-            : room.Joinable;
-
         return new OnlineRoomListEntry
         {
             RoomId = room.HostAddress ?? "",
             RoomName = room.RoomName ?? "",
             PlayerCount = room.PlayerCount,
-            MemberLimit = limit,
-            InMatch = inMatch,
-            MidJoinable = midJoinable,
+            MemberLimit = room.MaxPlayers,
+            InMatch = room.InMatch,
+            MidJoinable = room.MidJoinable,
             MatchId = room.MatchId ?? "",
-            CanJoin = canJoin,
+            CanJoin = room.Joinable && CanJoin(room.PlayerCount, room.MaxPlayers, room.InMatch, room.MidJoinable),
         };
     }
 }

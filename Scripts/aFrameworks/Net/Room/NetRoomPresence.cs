@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 
 /// <summary>
@@ -11,9 +12,11 @@ public sealed class NetRoomPresence
     public bool MidJoinable { get; init; } = true;
     public bool InMatch { get; init; }
     public string MatchId { get; init; } = "";
+    public bool AllowsJoining => Joinable && (!InMatch || MidJoinable)
+        && (MaxPlayers <= 0 || PlayerCount < MaxPlayers);
 }
 
 public static class NetRoomPresenceSource
 {
-    public static Func<NetRoomPresence> Read;
+    public static Func<NetRoomPresence>? Read;
 }

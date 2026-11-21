@@ -7,6 +7,7 @@
 [ext_resource type="Texture2D" uid="uid://bypkvt5w4owou" path="res://addons_custom/SocialEntryButton/Icon/qq.png" id="5_ate0f"]
 [ext_resource type="Script" uid="uid://c5nvvtayud7ls" path="res://addons_custom/SocialEntryButton/QQEntryButton.cs" id="6_m6i8k"]
 [ext_resource type="Texture2D" uid="uid://btpo56n8aw7gb" path="res://addons_custom/SocialEntryButton/QQ/qqgroup.jpg" id="7_gm7ph"]
+[ext_resource type="Script" path="res://addons_custom/SocialEntryButton/WishlistEntryButton.cs" id="8_wish"]
 
 [node name="Entry" type="HBoxContainer" unique_id=1794598976]
 anchors_preset = 3
@@ -14,7 +15,7 @@ anchor_left = 1.0
 anchor_top = 1.0
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = -137.0
+offset_left = -360.0
 offset_top = -47.0
 offset_right = -8.0
 offset_bottom = -7.0
@@ -60,3 +61,10 @@ groupNumber = "1097316153"
 groupQrCode = ExtResource("7_gm7ph")
 dialogMessage = "扫描二维码或者复制群号加入QQ群"
 metadata/_custom_type_script = "uid://rlmkd1k131xy"
+
+[node name="Wishlist" type="Button" parent="."]
+visible = false
+layout_mode = 2
+size_flags_vertical = 4
+text = "加入愿望单"
+script = ExtResource("8_wish")

@@ -10,6 +10,9 @@ public static class NetRouting
 
     public static bool IsPeerTarget(byte flagsByte) => flagsByte == PeerTargetMarker;
 
+    public static bool IsValidFlags(byte flagsByte) =>
+        flagsByte != 0 && (flagsByte & ~(byte)NetSendFlags.AllOthers) == 0;
+
     /// <summary>收包端：本机是否应执行 handler。</summary>
     public static bool ShouldDeliverOnReceive(bool amIHost, NetSendFlags flags)
     {

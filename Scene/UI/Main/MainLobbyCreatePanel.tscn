@@ -1,94 +1,120 @@
 [gd_scene format=3 uid="uid://bv6o5f80huekf"]
 
-[ext_resource type="Script" uid="uid://c5w6y2cuwk6eq" path="res://Scripts/MainUI/MainLobbyCreatePanel.cs" id="1_script"]
+[ext_resource type="Script" path="res://Scripts/MainUI/MainLobbyCreatePanel.cs" id="1_script"]
+[ext_resource type="Theme" path="res://Scene/UI/Main/OnlineRoomTheme.tres" id="2_theme"]
 
-[node name="MainLobbyCreatePanel" type="Control" unique_id=117972091 node_paths=PackedStringArray("modeLabel", "roomNameEdit", "maxPlayersSpin", "midJoinableCheck", "visibilityOption", "createButton", "cancelButton")]
+[node name="MainLobbyCreatePanel" type="Control" node_paths=PackedStringArray("modeLabel", "roomNameEdit", "maxPlayersSpin", "midJoinableCheck", "visibilityOption", "visibilityRow", "createButton", "cancelButton")]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+theme = ExtResource("2_theme")
 script = ExtResource("1_script")
-modeLabel = NodePath("Panel/Root/VBox/ModeLabel")
-roomNameEdit = NodePath("Panel/Root/VBox/RoomNameEdit")
-maxPlayersSpin = NodePath("Panel/Root/VBox/MaxPlayersSpin")
-midJoinableCheck = NodePath("Panel/Root/VBox/MidJoinableCheck")
-visibilityOption = NodePath("Panel/Root/VBox/VisibilityOption")
-createButton = NodePath("Panel/Root/VBox/Buttons/CreateButton")
-cancelButton = NodePath("Panel/Root/VBox/Buttons/CancelButton")
+modeLabel = NodePath("Center/Panel/Content/Title")
+roomNameEdit = NodePath("Center/Panel/Content/Name/RoomName")
+maxPlayersSpin = NodePath("Center/Panel/Content/Capacity/MaxPlayers")
+midJoinableCheck = NodePath("Center/Panel/Content/MidJoin")
+visibilityOption = NodePath("Center/Panel/Content/Visibility/Type")
+visibilityRow = NodePath("Center/Panel/Content/Visibility")
+createButton = NodePath("Center/Panel/Content/Actions/Create")
+cancelButton = NodePath("Center/Panel/Content/Actions/Back")
 
-[node name="Panel" type="Panel" parent="." unique_id=546790083]
-layout_mode = 1
-anchors_preset = 8
-anchor_left = 0.5
-anchor_top = 0.5
-anchor_right = 0.5
-anchor_bottom = 0.5
-offset_left = -250.0
-offset_top = -180.0
-offset_right = 250.0
-offset_bottom = 180.0
-grow_horizontal = 2
-grow_vertical = 2
-
-[node name="Root" type="MarginContainer" parent="Panel" unique_id=2040094574]
+[node name="Backdrop" type="ColorRect" parent="."]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = 16.0
-offset_top = 16.0
-offset_right = -16.0
-offset_bottom = -16.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.035, 0.051, 0.082, 0.93)
+
+[node name="Center" type="CenterContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="VBox" type="VBoxContainer" parent="Panel/Root" unique_id=544336494]
+[node name="Panel" type="PanelContainer" parent="Center"]
+custom_minimum_size = Vector2(410, 0)
 layout_mode = 2
-size_flags_horizontal = 3
-size_flags_vertical = 3
-theme_override_constants/separation = 10
 
-[node name="ModeLabel" type="Label" parent="Panel/Root/VBox" unique_id=1347320467]
+[node name="Content" type="VBoxContainer" parent="Center/Panel"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Title" type="Label" parent="Center/Panel/Content"]
 layout_mode = 2
 text = "创建房间"
+theme_type_variation = &"Heading"
 
-[node name="RoomNameEdit" type="LineEdit" parent="Panel/Root/VBox" unique_id=113308654]
-layout_mode = 2
-placeholder_text = "房间名"
-
-[node name="MaxPlayersLabel" type="Label" parent="Panel/Root/VBox" unique_id=713244079]
-layout_mode = 2
-text = "最大人数"
-
-[node name="MaxPlayersSpin" type="SpinBox" parent="Panel/Root/VBox" unique_id=97647832]
-layout_mode = 2
-min_value = 1.0
-max_value = 8.0
-value = 4.0
-
-[node name="MidJoinableCheck" type="CheckBox" parent="Panel/Root/VBox" unique_id=996303899]
-layout_mode = 2
-button_pressed = true
-text = "允许中途加入"
-
-[node name="VisibilityLabel" type="Label" parent="Panel/Root/VBox" unique_id=923283157]
-layout_mode = 2
-text = "可见性"
-
-[node name="VisibilityOption" type="OptionButton" parent="Panel/Root/VBox" unique_id=163028938]
-layout_mode = 2
-
-[node name="Buttons" type="HBoxContainer" parent="Panel/Root/VBox" unique_id=781434207]
+[node name="Name" type="HBoxContainer" parent="Center/Panel/Content"]
 layout_mode = 2
 theme_override_constants/separation = 8
-alignment = 1
 
-[node name="CreateButton" type="Button" parent="Panel/Root/VBox/Buttons" unique_id=1215244448]
+[node name="Label" type="Label" parent="Center/Panel/Content/Name"]
 layout_mode = 2
-text = "创建房间"
+text = "房间名"
+custom_minimum_size = Vector2(88, 0)
 
-[node name="CancelButton" type="Button" parent="Panel/Root/VBox/Buttons" unique_id=513321206]
+[node name="RoomName" type="LineEdit" parent="Center/Panel/Content/Name"]
 layout_mode = 2
+size_flags_horizontal = 3
+custom_minimum_size = Vector2(0, 36)
+max_length = 48
+
+[node name="Capacity" type="HBoxContainer" parent="Center/Panel/Content"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Label" type="Label" parent="Center/Panel/Content/Capacity"]
+layout_mode = 2
+text = "人数上限"
+custom_minimum_size = Vector2(88, 0)
+
+[node name="MaxPlayers" type="SpinBox" parent="Center/Panel/Content/Capacity"]
+layout_mode = 2
+size_flags_horizontal = 3
+custom_minimum_size = Vector2(0, 36)
+min_value = 1.0
+max_value = 250.0
+value = 4.0
+
+[node name="Visibility" type="HBoxContainer" parent="Center/Panel/Content"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Label" type="Label" parent="Center/Panel/Content/Visibility"]
+layout_mode = 2
+text = "可见性"
+custom_minimum_size = Vector2(88, 0)
+
+[node name="Type" type="OptionButton" parent="Center/Panel/Content/Visibility"]
+layout_mode = 2
+size_flags_horizontal = 3
+custom_minimum_size = Vector2(0, 36)
+
+[node name="MidJoin" type="CheckBox" parent="Center/Panel/Content"]
+layout_mode = 2
+button_pressed = true
+text = "允许对局开始后加入"
+
+[node name="Actions" type="HBoxContainer" parent="Center/Panel/Content"]
+layout_mode = 2
+theme_override_constants/separation = 8
+alignment = 2
+
+[node name="Back" type="Button" parent="Center/Panel/Content/Actions"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 36)
 text = "返回"
+
+[node name="Create" type="Button" parent="Center/Panel/Content/Actions"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 36)
+text = "创建房间"
+theme_type_variation = &"PrimaryButton"

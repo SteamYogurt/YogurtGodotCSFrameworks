@@ -17,6 +17,18 @@ public partial class ObjectPoolManager : Singleton<ObjectPoolManager>
         LoadLazy(LazyRoot);
     }
 
+    public override void _ExitTree()
+    {
+        foreach (var pool in pooledObjectPoolsDict.Values)
+            pool.Free();
+        foreach (var pool in tempPooledObjectPoolsDict.Values)
+            pool.Free();
+        pooledObjectPoolsDict.Clear();
+        tempPooledObjectPoolsDict.Clear();
+        lazyObjectsDict.Clear();
+        base._ExitTree();
+    }
+
     void LoadPooled(string openPath)
     {
         if (openPath[openPath.Length - 2] == '_') return;

@@ -16,11 +16,19 @@
   </ItemGroup>
   <!-- 直接编译纯逻辑源文件，不依赖 Godot 程序集 -->
   <ItemGroup>
-    <Compile Include="..\..\Scripts\aFrameworks\Net\NetSendFlags.cs" Link="Shared\NetSendFlags.cs" />
-    <Compile Include="..\..\Scripts\aFrameworks\Net\NetRouting.cs" Link="Shared\NetRouting.cs" />
-    <Compile Include="..\..\Scripts\aFrameworks\Net\NetSpawnDestroyGuard.cs" Link="Shared\NetSpawnDestroyGuard.cs" />
-    <Compile Include="..\..\Scripts\aFrameworks\Net\NetVarMaskUtil.cs" Link="Shared\NetVarMaskUtil.cs" />
-    <Compile Include="..\..\Scripts\aFrameworks\Net\NetSyncScope.cs" Link="Shared\NetSyncScope.cs" />
-    <Compile Include="..\..\Scripts\aFrameworks\Net\NetSyncSelectUtil.cs" Link="Shared\NetSyncSelectUtil.cs" />
+    <Compile Include="..\..\Scripts\aFrameworks\Net\Wire\NetSendFlags.cs" Link="Shared\NetSendFlags.cs" />
+    <Compile Include="..\..\Scripts\aFrameworks\Net\Wire\NetRouting.cs" Link="Shared\NetRouting.cs" />
+    <Compile Include="..\..\Scripts\aFrameworks\Net\Wire\NetSpawnDestroyGuard.cs" Link="Shared\NetSpawnDestroyGuard.cs" />
+    <Compile Include="..\..\Scripts\aFrameworks\Net\Sync\NetVarMaskUtil.cs" Link="Shared\NetVarMaskUtil.cs" />
+    <Compile Include="..\..\Scripts\aFrameworks\Net\Sync\NetSyncScope.cs" Link="Shared\NetSyncScope.cs" />
+    <Compile Include="..\..\Scripts\aFrameworks\Net\Sync\NetSyncSelectUtil.cs" Link="Shared\NetSyncSelectUtil.cs" />
+    <Compile Include="..\..\Scripts\aFrameworks\Net\Sync\NetMatchPeerAccess.cs" Link="Shared\NetMatchPeerAccess.cs" />
+    <Compile Include="..\..\Scripts\aFrameworks\Net\Wire\NetWireLimits.cs" Link="Shared\NetWireLimits.cs" />
+    <Compile Include="..\..\Scripts\aFrameworks\Net\Wire\NetWireFrames.cs" Link="Shared\NetWireFrames.cs" />
+    <Compile Include="..\..\Scripts\aFrameworks\Net\Transport\INetTransport.cs" Link="Shared\INetTransport.cs" />
+    <Compile Include="..\..\Scripts\aFrameworks\Net\Transport\LanTransport.cs" Link="Shared\LanTransport.cs" />
+    <Compile Include="..\..\Scripts\aFrameworks\Net\Transport\LanTransport.Connection.cs" Link="Shared\LanTransport.Connection.cs" />
+    <Compile Include="..\..\Scripts\aFrameworks\Net\Room\NetRoomPresence.cs" Link="Shared\NetRoomPresence.cs" />
+    <Compile Include="..\..\Scripts\aFrameworks\Steam\SteamStore.cs" Link="Shared\SteamStore.cs" />
   </ItemGroup>
 </Project>

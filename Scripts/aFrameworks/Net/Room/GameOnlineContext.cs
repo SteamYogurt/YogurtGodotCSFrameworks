@@ -1,6 +1,3 @@
-using Godot;
-using System;
-
 public class GameOnlineContext
 {
     public string RoomName { get; set; } = "Default Name";
@@ -13,4 +10,10 @@ public enum EGameLobbyType
     Public,
     Private,
     FriendsOnly
+}
+
+public enum ENetLobbyDisplayType
+{
+    Steam,
+    Lan
 }

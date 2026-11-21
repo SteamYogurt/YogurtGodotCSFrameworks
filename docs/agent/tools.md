@@ -7,8 +7,15 @@ Agent 用百炼出图、Tripo 出模，用 Godot 检查 GDScript 解析。运行
 | `Tools/bailian/tmp/` | 否 | 出图草稿 |
 | `Tools/tripo/tmp/ref/` | 否 | 图生模参考图，平铺 `<name>.png` |
 | `Tools/tripo/resize_glb_textures.py` | 是 | 把 GLB 内嵌贴图压到 1024 |
+| `Tools/check.ps1` | 是 | 串起网络测试和 GDScript 解析检查 |
 | `Tools/gdscript-check/` | 是 | `python Tools/gdscript-check/check.py` |
 | `addons/gdscript_check/check.gd` | 是 | 上面的脚本用 `--script` 加载 |
+
+全量检查：
+
+```text
+powershell -File Tools/check.ps1
+```
 
 成品网格放到 `Assets/Art/Gen/<小写英文 id>/`。图标、提示词、碰撞烘焙由具体项目自己加，不放进这个套件。
 

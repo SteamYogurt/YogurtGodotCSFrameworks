@@ -9,7 +9,6 @@ public partial class Game : Node,INetObject
     private readonly Dictionary<ulong, Player> _playersById = new();
     private readonly List<Player> _localPlayers = new();
     private readonly HashSet<ulong> _pendingPlayerDestroyIds = new();
-    private bool _initialOnlinePlayersBuilt = false;
     public static void AuthorizedNetSpawn(INetObject netObject, bool isOnline)
     {
         if (isOnline && TransportManager.Instance?.Current?.AmIHost() == false)
@@ -51,10 +50,6 @@ public partial class Game : Node,INetObject
         Main.Instance.ResetAndReturnToMenu();
         // 加入一个消息显示
     }
-    void OnHostQuit()
-    {
-        TryFreeGameAndReturn("Host Quit");
-    }
     bool _localCoopEnabled = false;
     int _localPlayerCount = 1;
     // 这个仅在单机的时候有效
@@ -65,6 +60,7 @@ public partial class Game : Node,INetObject
     public void OnlineSetupFromContext(GameOnlineContext context)
     {
         context ??= new GameOnlineContext();
+        roomName.Value = context.RoomName ?? "";
         MidJoinable = context.MidJoinable;
         MaxPlayerCount = Mathf.Max(context.MaxPlayers, 1);
         GameStateChanged?.Invoke();
@@ -169,9 +165,7 @@ public partial class Game : Node,INetObject
     public bool IsGameEnableEnter()
     {
         int cap = MaxPlayerCount;
-        if (cap <= 0)
-            return true;
-        return _playersById.Count < cap;
+        return (!InMatch || MidJoinable) && (cap <= 0 || _playersById.Count < cap);
     }
     public void OnNetTransPlayerListChanged()
     {
@@ -197,9 +191,10 @@ public partial class Game : Node,INetObject
             .Where(p => !netPlayerDict.ContainsKey(p.PlayerId))
             .ToList();
 
-        List<INetTransportPlayerInfo> playerToAdd = pList
+        List<INetTransportPlayerInfo> playerToAdd = netPlayerDict.Values
             .Where(p => !_playersById.ContainsKey(p.id))
             .Where(p => !_pendingPlayerDestroyIds.Contains(p.id))
+            .OrderByDescending(p => p.id == localID)
             .ToList();
 
         foreach (var player in playerToRemove)
@@ -208,33 +203,19 @@ public partial class Game : Node,INetObject
             AuthorizedNetDestroy(player, true);
         }
 
-        int availableSlots = Mathf.Max(MaxPlayerCount - _playersById.Count - _pendingPlayerDestroyIds.Count, 0);
-        if (!IsGameEnableEnter() || availableSlots <= 0)
+        int availableSlots = MaxPlayerCount <= 0
+            ? playerToAdd.Count
+            : Math.Max(MaxPlayerCount - _playersById.Count, 0);
+        if (InMatch && !MidJoinable)
+            availableSlots = 0;
+        foreach (var peer in playerToAdd.Skip(availableSlots))
+            TransportManager.Instance.HostKick(peer.id, blockRejoin: false);
+
+        // Stage every admitted peer's room snapshot before broadcasting any new players.
+        foreach (var peer in playerToAdd.Take(availableSlots))
         {
-            GD.Print("游戏不允许进入，直接踢出玩家");
-            foreach (var pInfo in playerToAdd)
-            {
-                NetManager.Instance.SendEventToPeer(pInfo.id, "Kick");
-            }
-            return;
-        }
-
-        // 首次在线玩家构建时，不做 mid-join 快照同步。
-        // 因为当时已在房间里的客户端，已经收到了 Game 的广播生成包。
-        bool allowMidJoinSnapshot = _initialOnlinePlayersBuilt;
-
-        if (allowMidJoinSnapshot)
-        {
-            var newRemotePeerIds = playerToAdd
-                .Select(p => p.id)
-                .Where(id => id != localID)
-                .Distinct()
-                .ToList();
-
-            foreach (var peerId in newRemotePeerIds)
-            {
-                NetManager.Instance.SyncAllNetObjectsToPlayer(peerId);
-            }
+            if (peer.id != localID)
+                NetManager.Instance.SyncForJoiningPeer(peer.id);
         }
 
         foreach (var pInfo in playerToAdd.Take(availableSlots))
@@ -257,8 +238,6 @@ public partial class Game : Node,INetObject
             AuthorizedNetSpawn(player, true);
         }
 
-        _initialOnlinePlayersBuilt = true;
-
         if (_playersById.Count > pList.Count)
         {
             GD.PrintErr("更新列表后realPlayerCount > pList.Count");
@@ -274,6 +253,8 @@ public partial class Game : Node,INetObject
     #region State
     bool isAuthorized = false;
     readonly NetVar midJoinable = new(true);
+    readonly NetVar roomName = new("");
+    public string RoomName => (string)roomName.Value;
     public bool IsAuthorized => isAuthorized;
 
     /// <summary>示例没有对局流。有 Match 时改为真实开局状态，并注册 <see cref="NetMatchAdmission.CollectRemotePeers"/>。</summary>
@@ -345,13 +326,6 @@ public partial class Game : Node,INetObject
     }
     public event Action<string> OnNewMsg;
   
-    public override void _Ready()
-    {
-        if (IsOnline && TransportManager.Instance != null)
-        {
-            TransportManager.Instance.HostQuit += OnHostQuit;
-        }
-    }
     public override void _EnterTree()
     {
         instance = this;
@@ -393,7 +367,6 @@ public partial class Game : Node,INetObject
         {
             TransportManager.Instance.NetPlayerListChanged
                 -= OnNetTransPlayerListChanged;
-            TransportManager.Instance.HostQuit -= OnHostQuit;
         }
         InputManager.Instance?.ClearLocalInputContext();
     }
@@ -452,7 +425,8 @@ public partial class Game : Node,INetObject
             {
                 isOnline,
                 midJoinable,
-                maxPlayerCount
+                maxPlayerCount,
+                roomName
             };
         }
         return fullStates;
@@ -469,8 +443,6 @@ public partial class Game : Node,INetObject
     public void INetSpawn()
     {
         Main.Instance.AddGame(this);
-        UIManager.Instance.HideWaiting();
-        //Main.Instance.AddChild(this);
     }
     public void INetDestroy()
     {

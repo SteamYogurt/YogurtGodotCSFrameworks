@@ -4,8 +4,10 @@
 
 | 文件 | 内容 |
 |------|------|
+| [consume.md](consume.md) | 新项目抄哪些目录、必须改的键 |
 | [net.md](net.md) | 传输、路由、同步域、对象生命周期 |
 | [lobby.md](lobby.md) | 房间编排、Steam / LAN 列表、示例 Game |
+| [app.md](app.md) | 入口、设置、语言切换 |
 | [unit-core.md](unit-core.md) | 单位、属性、伤害、Buff、对局上下文 |
 | [promotion.md](promotion.md) | 词条效果、条件、动作 |
 | [input.md](input.md) | 键位与本地输入上下文 |

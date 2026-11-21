@@ -15,7 +15,7 @@ public partial class WaitingPanel : Control
         };
         cancelBtn.Pressed += () =>
         {
-            Main.Instance.ResetAndReturnToMenu();
+            Main.Instance.ReturnToLobby();
         };
     }
 

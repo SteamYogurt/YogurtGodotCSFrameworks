@@ -1,6 +1,6 @@
 [gd_scene load_steps=4 format=3 uid="uid://casgr5rwlfvgy"]
 
-[ext_resource type="Script" uid="uid://dq7svqn6y7ojo" path="res://Scripts/aFrameworks/Net/Player.cs" id="1_jymk6"]
+[ext_resource type="Script" path="res://Scripts/Game/Player.cs" id="1_jymk6"]
 [ext_resource type="Script" uid="uid://bftsp12huoof5" path="res://Scripts/aFrameworks/Object/ObjectInfo.cs" id="2_qgurn"]
 
 [sub_resource type="Resource" id="Resource_yvro6"]

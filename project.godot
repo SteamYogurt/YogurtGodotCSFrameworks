@@ -11,7 +11,7 @@ config_version=5
 [application]
 
 config/name="YogurtGodotFrameworks"
-run/main_scene="uid://cbgo5hsahkuo5"
+run/main_scene="res://Scene/App/Main.tscn"
 config/features=PackedStringArray("4.7", "C#", "Forward Plus")
 config/icon="res://icon.svg"
 

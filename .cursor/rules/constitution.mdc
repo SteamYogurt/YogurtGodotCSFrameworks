@@ -5,14 +5,17 @@ alwaysApply: true
 
 # 宪法
 
-C# / Godot 4.7。细则见根目录 `AGENTS.md`。
+C# / Godot 4.7 联机套件。日常 GDS 框架在并列仓 `../gds-framework`。细则见根目录 `AGENTS.md`。本仓与后续项目都按 Agent 流程改。不要往本仓加 Desc、音效或本地化运行时。
 
-- 套件代码在 `Scripts/aFrameworks/Net`、`Scripts/UnitCore`、`Scripts/UnitCoreSupport`、`Scripts/Promotion`、`Scripts/PromotionSupport`，以及 `Scripts/aFrameworks/Input`、`Resource`、`Steam`、`Object`。
+- 套件代码在 `Scripts/aFrameworks/Net`、`Scripts/UnitCore`、`Scripts/UnitCoreSupport`、`Scripts/Promotion`、`Scripts/PromotionSupport`，以及 `Scripts/aFrameworks/Input`、`Resource`、`Steam`、`Object`、`UserInfo`、`Localization`、`Singleton.cs`。
 - `Scripts/aFrameworks/UI` 是壳的界面层，跟 `Main` 一起用。它可以打开 `MainUI` 里的大厅场景，不引用 `Game`。
 - `Scripts/Game`、`Scripts/MainUI`、`Scripts/Temp`、`AATest` 是示例或草稿。
 - 套件核心不得引用 `Scripts/Game` 或 `Scripts/Temp`。会话状态经 `NetRoomPresenceSource` / `NetMatchAdmission` 交给网络层。
 - 联机：一个连接一个本地玩家。`LocalSlotIndex` 只用于离线，不要做成网络字段。
+- 运行入口是 `res://Scene/App/Main.tscn`。不要把 `AATest` 当入口。
 - 新文件按模块分夹，不要平铺在目录根。
 - 草稿只进 `Tools/<工具>/tmp/`。运行时代码不引用 `Tools/`。
 - 出图走 `bailian-cli` skill，出模走 `tripo-cli` skill。不要手拼百炼 / Tripo HTTP。
+- 改 `Net` 协议 / 路由 / 同步域：`dotnet test Tests/Net.Tests/Net.Tests.csproj`。
+- 改 `addons/`、`addons_custom/` 的 `.gd`：`python Tools/gdscript-check/check.py`。
 - 改路径、同步域、房间列表键或禁止项时，同步 `docs/agent/` 与本规则。

@@ -1,102 +1,135 @@
 [gd_scene format=3 uid="uid://bh3qhvktdj1yh"]
 
-[ext_resource type="Script" uid="uid://8m8jqbmceh3u" path="res://Scripts/MainUI/MainLobbyPanel.cs" id="1_script"]
-[ext_resource type="PackedScene" uid="uid://cu12pbon5xqxl" path="res://Scene/UI/Main/MainLobbyRoomItem.tscn" id="2_abt6y"]
-[ext_resource type="PackedScene" uid="uid://bv6o5f80huekf" path="res://Scene/UI/Main/MainLobbyCreatePanel.tscn" id="3_y55cu"]
+[ext_resource type="Script" path="res://Scripts/MainUI/MainLobbyPanel.cs" id="1_script"]
+[ext_resource type="Theme" path="res://Scene/UI/Main/OnlineRoomTheme.tres" id="2_theme"]
+[ext_resource type="PackedScene" path="res://Scene/UI/Main/MainLobbyRoomItem.tscn" id="3_room"]
+[ext_resource type="PackedScene" path="res://Scene/UI/Main/MainLobbyCreatePanel.tscn" id="4_create"]
 
-[node name="MainLobbyPanel" type="Control" unique_id=2016922983 node_paths=PackedStringArray("titleLabel", "statusLabel", "roomListContainer", "joinButton", "refreshButton", "createButton", "backButton")]
+[node name="MainLobbyPanel" type="Control" node_paths=PackedStringArray("titleLabel", "statusLabel", "roomListContainer", "joinButton", "refreshButton", "createButton", "backButton", "noticeLabel", "directJoinRow", "addressEdit", "connectButton")]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+theme = ExtResource("2_theme")
 script = ExtResource("1_script")
-titleLabel = NodePath("Panel/Root/VBox/Header/TitleLabel")
-statusLabel = NodePath("Panel/Root/VBox/StatusLabel")
-roomListContainer = NodePath("Panel/Root/VBox/RoomScroll/RoomList")
-joinButton = NodePath("Panel/Root/VBox/Buttons/JoinButton")
-refreshButton = NodePath("Panel/Root/VBox/Buttons/RefreshButton")
-createButton = NodePath("Panel/Root/VBox/Buttons/CreateButton")
-backButton = NodePath("Panel/Root/VBox/Buttons/BackButton")
-lobbyEntranceItemScene = ExtResource("2_abt6y")
-createPanelScene = ExtResource("3_y55cu")
+titleLabel = NodePath("Center/Panel/Content/Header/Title")
+statusLabel = NodePath("Center/Panel/Content/Header/Status")
+roomListContainer = NodePath("Center/Panel/Content/Rooms/List")
+joinButton = NodePath("Center/Panel/Content/Actions/Join")
+refreshButton = NodePath("Center/Panel/Content/Actions/Refresh")
+createButton = NodePath("Center/Panel/Content/Actions/Create")
+backButton = NodePath("Center/Panel/Content/Actions/Back")
+noticeLabel = NodePath("Center/Panel/Content/Notice")
+directJoinRow = NodePath("Center/Panel/Content/Direct")
+addressEdit = NodePath("Center/Panel/Content/Direct/Address")
+connectButton = NodePath("Center/Panel/Content/Direct/Connect")
+lobbyEntranceItemScene = ExtResource("3_room")
+createPanelScene = ExtResource("4_create")
 
-[node name="Panel" type="Panel" parent="." unique_id=1120355076]
-layout_mode = 1
-anchors_preset = 8
-anchor_left = 0.5
-anchor_top = 0.5
-anchor_right = 0.5
-anchor_bottom = 0.5
-offset_left = -320.0
-offset_top = -220.0
-offset_right = 320.0
-offset_bottom = 220.0
-grow_horizontal = 2
-grow_vertical = 2
-
-[node name="Root" type="MarginContainer" parent="Panel" unique_id=1156757850]
+[node name="Backdrop" type="ColorRect" parent="."]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = 16.0
-offset_top = 16.0
-offset_right = -16.0
-offset_bottom = -16.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.035, 0.051, 0.082, 1)
+
+[node name="Center" type="CenterContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="VBox" type="VBoxContainer" parent="Panel/Root" unique_id=433510755]
+[node name="Panel" type="PanelContainer" parent="Center"]
+custom_minimum_size = Vector2(516, 0)
 layout_mode = 2
-size_flags_horizontal = 3
-size_flags_vertical = 3
+
+[node name="Content" type="VBoxContainer" parent="Center/Panel"]
+layout_mode = 2
 theme_override_constants/separation = 10
 
-[node name="Header" type="HBoxContainer" parent="Panel/Root/VBox" unique_id=538229745]
-layout_mode = 2
-
-[node name="TitleLabel" type="Label" parent="Panel/Root/VBox/Header" unique_id=1387077196]
-layout_mode = 2
-size_flags_horizontal = 3
-text = "大厅"
-
-[node name="StatusLabel" type="Label" parent="Panel/Root/VBox" unique_id=1318065088]
-layout_mode = 2
-text = "状态"
-
-[node name="RoomScroll" type="ScrollContainer" parent="Panel/Root/VBox" unique_id=402013562]
-custom_minimum_size = Vector2(0, 240)
-layout_mode = 2
-size_flags_horizontal = 3
-size_flags_vertical = 3
-
-[node name="RoomList" type="VBoxContainer" parent="Panel/Root/VBox/RoomScroll" unique_id=1790434932]
-layout_mode = 2
-size_flags_horizontal = 3
-size_flags_vertical = 3
-theme_override_constants/separation = 8
-alignment = 1
-
-[node name="Buttons" type="HBoxContainer" parent="Panel/Root/VBox" unique_id=1483219343]
+[node name="Header" type="HBoxContainer" parent="Center/Panel/Content"]
 layout_mode = 2
 theme_override_constants/separation = 8
-alignment = 1
 
-[node name="JoinButton" type="Button" parent="Panel/Root/VBox/Buttons" unique_id=1915251310]
+[node name="Title" type="Label" parent="Center/Panel/Content/Header"]
 layout_mode = 2
-disabled = true
-text = "加入房间"
+text = "联机大厅"
+theme_type_variation = &"Heading"
+size_flags_horizontal = 3
 
-[node name="RefreshButton" type="Button" parent="Panel/Root/VBox/Buttons" unique_id=417605208]
+[node name="Status" type="Label" parent="Center/Panel/Content/Header"]
 layout_mode = 2
-text = "刷新房间"
+text = "暂未发现房间"
+theme_type_variation = &"MutedLabel"
 
-[node name="CreateButton" type="Button" parent="Panel/Root/VBox/Buttons" unique_id=1181555671]
+[node name="Notice" type="Label" parent="Center/Panel/Content"]
 layout_mode = 2
+text = ""
+theme_type_variation = &"NoticeLabel"
+visible = false
+autowrap_mode = 3
+
+[node name="Rooms" type="ScrollContainer" parent="Center/Panel/Content"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 174)
+horizontal_scroll_mode = 0
+follow_focus = true
+
+[node name="List" type="VBoxContainer" parent="Center/Panel/Content/Rooms"]
+layout_mode = 2
+theme_override_constants/separation = 6
+size_flags_horizontal = 3
+
+[node name="Actions" type="HBoxContainer" parent="Center/Panel/Content"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Back" type="Button" parent="Center/Panel/Content/Actions"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 36)
+text = "返回"
+
+[node name="Refresh" type="Button" parent="Center/Panel/Content/Actions"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 36)
+text = "刷新"
+
+[node name="Space" type="Control" parent="Center/Panel/Content/Actions"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Create" type="Button" parent="Center/Panel/Content/Actions"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 36)
 text = "创建房间"
 
-[node name="BackButton" type="Button" parent="Panel/Root/VBox/Buttons" unique_id=244169710]
+[node name="Join" type="Button" parent="Center/Panel/Content/Actions"]
 layout_mode = 2
-text = "返回"
+custom_minimum_size = Vector2(0, 36)
+text = "加入房间"
+theme_type_variation = &"PrimaryButton"
+disabled = true
+
+[node name="Direct" type="HBoxContainer" parent="Center/Panel/Content"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Address" type="LineEdit" parent="Center/Panel/Content/Direct"]
+layout_mode = 2
+size_flags_horizontal = 3
+custom_minimum_size = Vector2(0, 36)
+placeholder_text = "房主地址，例如 127.0.0.1"
+max_length = 253
+
+[node name="Connect" type="Button" parent="Center/Panel/Content/Direct"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 36)
+text = "直连"
+disabled = true

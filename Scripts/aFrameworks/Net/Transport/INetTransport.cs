@@ -1,4 +1,4 @@
-using Godot;
+#nullable enable
 using System;
 using System.Collections.Generic;
 
@@ -7,6 +7,7 @@ public partial interface INetTransport
     bool InRoom { get; }
     ulong LocalID { get; }
     ulong HostID { get; }
+    bool LastJoinWasBlocked { get; }
 
     /// <summary>
     /// 当前正在处理的入站包来源 peer。未在 Poll 处理包时为 0。
@@ -20,6 +21,7 @@ public partial interface INetTransport
     void JoinRoom(string roomId);
     void LeaveRoom();
     bool AmIHost();
+    bool KickPeer(ulong peerId, bool blockRejoin);
 
     /// <summary>发给指定 peer。客机侧仅当 target 为 HostID 时有效。</summary>
     void Send(ReadOnlySpan<byte> data, ulong peerId);
@@ -32,21 +34,36 @@ public partial interface INetTransport
     void SendToAll(ReadOnlySpan<byte> data, ulong excludePeerId = 0);
     void SendToAll(byte[] data, ulong excludePeerId = 0);
 
+    bool IsPeerConnected(ulong peerId)
+    {
+        var players = GetTempNetPlayerInfos();
+        return players?.Exists(player => player.id == peerId) == true;
+    }
+
+    void SendToSelected(ReadOnlySpan<byte> data, Predicate<ulong>? include, ulong excludePeerId = 0)
+    {
+        if (!AmIHost() || GetTempNetPlayerInfos() is not { } players) return;
+        foreach (var player in players)
+            if (player.id != LocalID && player.id != excludePeerId && (include == null || include(player.id)))
+                Send(data, player.id);
+    }
+
     void Poll();
 
     /// <summary>
-    /// 这个只能即时读一次，懒得一直互通维护
+    /// 返回传输层成员的瞬时视图。
     /// </summary>
-    public List<INetTransportPlayerInfo> GetTempNetPlayerInfos();
-    public event Action NetPlayerListChanged;
-    public event Action RoomJoined;
-    public event Action RoomJoinFailed;
-    public event Action RoomStateChanged;
-    public event Action HostQuit;
+    public List<INetTransportPlayerInfo>? GetTempNetPlayerInfos();
+    public event Action? NetPlayerListChanged;
+    public event Action? RoomJoined;
+    public event Action? RoomJoinFailed;
+    public event Action? RoomStateChanged;
+    public event Action? HostQuit;
+    public event Action? Kicked;
 }
 
 public class INetTransportPlayerInfo
 {
-    public string name;
+    public string name = "";
     public ulong id;
 }

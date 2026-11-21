@@ -81,6 +81,8 @@ public partial class Player : Node, INetObject
         return hasAuthority;
     }
 
+    public bool CanReceiveInputFrom(ulong peerId) => peerId != 0 && peerId == PlayerId;
+
     public List<NetVar> GetInputStateVars()
     {
         return _inputStateVars;

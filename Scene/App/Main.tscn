@@ -1,0 +1,10 @@
+[gd_scene format=3 uid="uid://c8kx4n2wpq7hmn"]
+
+[ext_resource type="Script" uid="uid://ymfn07skytpq" path="res://Scripts/aFrameworks/Main.cs" id="1_main"]
+[ext_resource type="Script" uid="uid://bs74ville8q7u" path="res://Scripts/aFrameworks/Steam/SteamManager.cs" id="2_steam"]
+
+[node name="Main" type="Node"]
+script = ExtResource("1_main")
+
+[node name="SteamManager" type="Node" parent="."]
+script = ExtResource("2_steam")

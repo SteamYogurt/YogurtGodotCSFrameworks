@@ -35,9 +35,7 @@ public abstract partial class SocialEntryButtonBase : SimpleButton
             return;
         }
 
-        Error err = OS.ShellOpen(url);
-        if (err != Error.Ok)
-            GD.PushError($"{GetType().Name} 打开链接失败：{url}，错误：{err}");
+        SteamManager.OpenExternalUrl(url);
     }
 
     protected void ShowConfirmDialog(string title, string message, Action onConfirm)

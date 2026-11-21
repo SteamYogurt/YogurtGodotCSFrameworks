@@ -1,0 +1,16 @@
+---
+description: C# 套件写法与目录边界
+globs: "**/*.cs"
+alwaysApply: false
+---
+
+# C#
+
+- 套件目录（`Scripts/aFrameworks/Net`、`Steam`、`Input`、`Resource`、`Object`、`UserInfo`、`Localization`、`UnitCore`、`UnitCoreSupport`、`Promotion`、`PromotionSupport`）不得引用 `Scripts/Game` 或 `Scripts/Temp`。
+- 示例壳（`Main*`、`UI`、`MainUI`）可以引用 `Game`。不要把玩法写进套件目录。
+- 新文件按模块分夹。一个目录超过约 10 个同级 `.cs` 时先拆夹。
+- 运行时不引用 `res://Tools/`。草稿只进 `Tools/<工具>/tmp/` 或 `Scripts/Temp`。
+- 联机一个连接一个本地玩家。`LocalSlotIndex` 只用于离线，不要做成 `NetVar`。
+- 常驻服务用 `Singleton<T>`。从 `Main._Ready` 进树后取 `Instance`。
+- 场景对象用 `ObjectPoolManager.Spawn` / `Release`。对局状态在 `MatchContext`。
+- 改路径或禁止项时同步 `docs/agent/*.md`。

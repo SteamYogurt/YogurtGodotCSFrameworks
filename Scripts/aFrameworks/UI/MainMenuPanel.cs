@@ -30,6 +30,17 @@ public partial class MainMenuPanel : Control
 		lan.Pressed += () => UIManager.Instance.OpenLobby(ENetLobbyDisplayType.Lan);
 		box.AddChild(lan);
 
+		Button settings = CreateButton("设置");
+		settings.Pressed += () => UIManager.Instance.ShowSettings();
+		box.AddChild(settings);
+
+		if (SteamManager.OfferWishlist)
+		{
+			Button wishlist = CreateButton("加入愿望单");
+			wishlist.Pressed += () => SteamManager.OpenWishlistPage();
+			box.AddChild(wishlist);
+		}
+
 		steam.GrabFocus();
 	}
 

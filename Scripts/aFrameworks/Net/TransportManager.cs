@@ -11,12 +11,6 @@ public partial class TransportManager : Singleton<TransportManager>
     public event Action RoomStateChanged;
     public event Action HostQuit;
 
-    public override void _EnterTree()
-    {
-        base._EnterTree();
-        NetManager.Instance.EventCb += OnEvent;
-    }
-
     public void UseSteam()
     {
         isSteam = true;
@@ -48,6 +42,7 @@ public partial class TransportManager : Singleton<TransportManager>
         transport.RoomJoinFailed += OnCurrentRoomJoinFailed;
         transport.RoomStateChanged += OnCurrentRoomStateChanged;
         transport.HostQuit += OnCurrentHostQuit;
+        transport.Kicked += OnCurrentKicked;
     }
 
     void UnbindCurrent(INetTransport transport)
@@ -60,10 +55,12 @@ public partial class TransportManager : Singleton<TransportManager>
         transport.RoomJoinFailed -= OnCurrentRoomJoinFailed;
         transport.RoomStateChanged -= OnCurrentRoomStateChanged;
         transport.HostQuit -= OnCurrentHostQuit;
+        transport.Kicked -= OnCurrentKicked;
     }
 
     void OnCurrentNetPlayerListChanged()
     {
+        NetManager.Instance?.OnTransportPlayersChanged();
         NetPlayerListChanged?.Invoke();
     }
 
@@ -100,19 +97,8 @@ public partial class TransportManager : Singleton<TransportManager>
     }
     public event Action Kicked;
 
-    public void OnEvent(string @event)
-    {
-        if (Current != null && @event == "Kick")
-            Kicked?.Invoke();
-    }
+    private void OnCurrentKicked() => Kicked?.Invoke();
 
-    public void HostKick(ulong id)
-    {
-        if (id == 0 || Current == null || !Current.AmIHost())
-            return;
-        if (id == Current.LocalID)
-            return;
-
-        NetManager.Instance?.SendEventToPeer(id, "Kick");
-    }
+    public bool HostKick(ulong id, bool blockRejoin = true) =>
+        Current?.KickPeer(id, blockRejoin) == true;
 }

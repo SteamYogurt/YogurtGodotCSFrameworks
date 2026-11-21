@@ -1,391 +1,478 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using Godot;
 using Steamworks;
 
 public partial class SteamTransport : INetTransport
 {
+    private enum RoomOperation { None, Create, Join }
+    private const ulong RelayWaitTimeoutMs = 12000;
+    private const ulong LobbyWaitTimeoutMs = 15000;
+    private const ulong HandshakeTimeoutMs = 12000;
+    private const ulong MemberRefreshIntervalMs = 500;
+    private const uint LobbyKickMagic = ((uint)NetWireLimits.ProtocolVersion << 24) | 0x4B434B;
+    private const int LobbyKickBytes = sizeof(uint) + sizeof(ulong);
+
+    private readonly HashSet<ulong> members = new();
+    private readonly HashSet<ulong> previousMembers = new();
+    private readonly HashSet<ulong> blockedPeers = new();
+    private readonly HashSet<ulong> kickedMembers = new();
+    private readonly byte[] lobbyChatBuffer = new byte[4096];
+    private RoomOperation pendingOperation;
+    private ulong pendingLobby;
+    private ulong deadline;
+    private ulong nextRelayRetry;
+    private ulong nextMemberRefresh;
+    private ulong joinNonce;
+    private bool lobbyApiIssued;
+    private bool localKickPending;
+    private int roomVersion;
+    private (int Players, int MaxPlayers, bool Joinable, bool MidJoinable, bool InMatch, string MatchId)? publishedPresence;
+    private Callback<LobbyChatUpdate_t> lobbyChatUpdateCallback;
+    private Callback<LobbyChatMsg_t> lobbyChatMessageCallback;
+    private Callback<SteamNetworkingMessagesSessionRequest_t> sessionRequestCallback;
+    private Callback<SteamNetworkingMessagesSessionFailed_t> sessionFailedCallback;
+
     public int PendingCreateMaxPlayers { get; set; } = 4;
+    public bool PendingCreateMidJoinable { get; set; } = true;
     public ELobbyType PendingCreateLobbyType { get; set; } = ELobbyType.k_ELobbyTypePublic;
     public bool InRoom { get; private set; }
     public ulong LocalID => SteamUser.GetSteamID().m_SteamID;
-
-    /// <summary>进房时记下的原始房主，不跟随 Steam 的 Lobby Owner 转移。</summary>
-    private ulong _cachedHostID;
-    public ulong HostID => _cachedHostID;
-
+    public ulong HostID { get; private set; }
+    public CSteamID currentLobby { get; private set; }
     public string LastRoomFailMessageKey { get; private set; } = "";
-
-    private readonly List<ulong> _cachedMemberIDs = new List<ulong>();
-    private int roomPlayersCount = 0;
-
-    public CSteamID currentLobby;
-    CSteamID senderID;
-    bool hasRaisedRoomJoined;
-    bool hostQuitRaised;
-
-    enum PendingRoomOp
-    {
-        None,
-        Create,
-        Join
-    }
-
-    PendingRoomOp pendingRoomOp;
-    ulong pendingJoinLobbyId;
-    ulong pendingCreatedLobbyId;
-    ulong pendingOpStartedMs;
-    ulong lobbyApiIssuedMs;
-    bool lobbyApiIssued;
-
-    const ulong RelayWaitTimeoutMs = 12000;
-    const ulong LobbyWaitTimeoutMs = 15000;
-    const ulong RelayRetryIntervalMs = 2000;
-    ulong lastRelayRetryMs;
-
-    Callback<LobbyEnter_t> lobbyEnterCallback;
-    Callback<LobbyDataUpdate_t> lobbyDataUpdateCallback;
-    Callback<SteamNetworkingMessagesSessionRequest_t> sessionRequestCallback;
-    Callback<LobbyChatUpdate_t> lobbyChatUpdateCallback;
-    CallResult<LobbyCreated_t> lobbyCreatedCallResult;
+    public bool LastJoinWasBlocked { get; private set; }
 
     public event Action NetPlayerListChanged;
     public event Action RoomJoined;
     public event Action RoomJoinFailed;
     public event Action RoomStateChanged;
     public event Action HostQuit;
+    public event Action Kicked;
 
-    bool IsAcceptingSessions => InRoom || pendingRoomOp != PendingRoomOp.None;
+    public bool AmIHost() => HostID != 0 && HostID == LocalID;
 
     public List<INetTransportPlayerInfo> GetTempNetPlayerInfos()
     {
-        if (!InRoom) return null;
+        if (!InRoom)
+            return null;
 
-        var list = new List<INetTransportPlayerInfo>(_cachedMemberIDs.Count);
-        foreach (var id in _cachedMemberIDs)
+        var list = new List<INetTransportPlayerInfo>(members.Count);
+        if (AmIHost())
         {
-            list.Add(new INetTransportPlayerInfo
-            {
-                id = id,
-                name = SteamFriends.GetFriendPersonaName(new CSteamID(id))
-            });
+            list.Add(PlayerInfo(LocalID));
+            foreach (ulong peerId in readyPeers)
+                if (!failedPeers.Contains(peerId))
+                    list.Add(PlayerInfo(peerId));
+        }
+        else
+        {
+            foreach (ulong peerId in members)
+                list.Add(PlayerInfo(peerId));
         }
         return list;
     }
 
+    private static INetTransportPlayerInfo PlayerInfo(ulong id) =>
+        new() { id = id, name = SteamFriends.GetFriendPersonaName(new CSteamID(id)) };
+
     public void Init()
     {
-        GD.Print("[SteamTransport] Init");
-        ResetState(false);
-        if (!SteamManager.Instance.Inited)
-        {
-            GD.PrintErr("[SteamTransport] Init Failed");
+        if (SteamManager.Instance?.Inited != true)
             return;
-        }
         SteamManager.Instance.EnsureRelayNetworkAccess();
-        RegisterCallbacks();
+        lobbyChatUpdateCallback = Callback<LobbyChatUpdate_t>.Create(OnLobbyChatUpdate);
+        lobbyChatMessageCallback = Callback<LobbyChatMsg_t>.Create(OnLobbyChatMessage);
+        sessionRequestCallback = Callback<SteamNetworkingMessagesSessionRequest_t>.Create(OnSessionRequest);
+        sessionFailedCallback = Callback<SteamNetworkingMessagesSessionFailed_t>.Create(OnSessionFailed);
     }
 
     public void Free()
     {
-        GD.Print("[SteamTransport] Free");
-        ResetState(false);
-        UnregisterCallbacks();
+        ResetState();
+        lobbyChatUpdateCallback?.Dispose();
+        lobbyChatMessageCallback?.Dispose();
+        sessionRequestCallback?.Dispose();
+        sessionFailedCallback?.Dispose();
     }
 
-    public void CreateRoom()
-    {
-        LastRoomFailMessageKey = "";
-        if (SteamManager.Instance == null || !SteamManager.Instance.Inited)
-        {
-            FailPendingRoomOp("创建房间失败");
-            return;
-        }
-
-        BeginPendingRoomOp(PendingRoomOp.Create, 0);
-    }
+    public void CreateRoom() => BeginRoomOperation(RoomOperation.Create, 0);
 
     public void JoinRoom(string roomId)
     {
-        LastRoomFailMessageKey = "";
-        if (SteamManager.Instance == null || !SteamManager.Instance.Inited)
-        {
-            FailPendingRoomOp("加入房间失败");
-            return;
-        }
-
+        LastJoinWasBlocked = false;
         if (!ulong.TryParse(roomId, out ulong id) || id == 0)
         {
             FailPendingRoomOp("加入房间失败");
             return;
         }
-
-        BeginPendingRoomOp(PendingRoomOp.Join, id);
+        BeginRoomOperation(RoomOperation.Join, id);
     }
 
     public void LeaveRoom()
     {
-        if (!InRoom && pendingRoomOp == PendingRoomOp.None) return;
-        ResetState(true);
+        if (currentLobby.m_SteamID == 0 && pendingOperation == RoomOperation.None)
+            return;
+        ResetState();
+        RoomStateChanged?.Invoke();
     }
 
-    void BeginPendingRoomOp(PendingRoomOp op, ulong joinLobbyId)
+    private void BeginRoomOperation(RoomOperation operation, ulong lobbyId)
     {
-        pendingRoomOp = op;
-        pendingJoinLobbyId = joinLobbyId;
-        pendingCreatedLobbyId = 0;
-        pendingOpStartedMs = NowMs();
-        lobbyApiIssued = false;
-        lobbyApiIssuedMs = 0;
-        lastRelayRetryMs = 0;
+        ResetState();
+        LastRoomFailMessageKey = "";
+        LastJoinWasBlocked = false;
+        pendingOperation = operation;
+        pendingLobby = lobbyId;
+        deadline = NowMs() + RelayWaitTimeoutMs;
+        nextRelayRetry = 0;
         SteamManager.Instance?.EnsureRelayNetworkAccess();
     }
 
-    void ResetState(bool notifyRoomStateChanged)
+    private void ResetState()
     {
-        pendingRoomOp = PendingRoomOp.None;
-        pendingJoinLobbyId = 0;
-        pendingCreatedLobbyId = 0;
-        lobbyApiIssued = false;
-        ClearPendingSends();
-
-        if (InRoom)
+        roomVersion++;
+        if (currentLobby.m_SteamID != 0)
+        {
+            ulong local = LocalID;
+            foreach (ulong peerId in members)
+                if (peerId != local)
+                    ClosePeerSession(peerId);
             SteamMatchmaking.LeaveLobby(currentLobby);
-
+            // Reset can be called from inside a receive callback. Leave that batch
+            // untouched so its native messages are released by its own finally.
+            var discarded = new IntPtr[incomingMessages.Length];
+            int count = SteamNetworkingMessages.ReceiveMessagesOnChannel(P2PChannel, discarded, discarded.Length);
+            for (int i = 0; i < count; i++)
+                SteamNetworkingMessage_t.Release(discarded[i]);
+        }
+        pendingSends.Clear();
+        readyPeers.Clear();
+        failedPeers.Clear();
+        members.Clear();
+        previousMembers.Clear();
+        blockedPeers.Clear();
+        kickedMembers.Clear();
+        pendingOperation = RoomOperation.None;
+        lobbyApiIssued = false;
+        peerListDirty = false;
+        localKickPending = false;
+        publishedPresence = null;
         InRoom = false;
-        hasRaisedRoomJoined = false;
-        hostQuitRaised = false;
         currentLobby = default;
-        _cachedHostID = 0;
-        roomPlayersCount = 0;
-        _cachedMemberIDs.Clear();
-        ClearP2P();
-        if (notifyRoomStateChanged)
-            RoomStateChanged?.Invoke();
+        HostID = failedHost = CurrentSenderId = 0;
     }
-
-    public bool AmIHost() => HostID != 0 && HostID == LocalID;
-
-    public ulong CurrentSenderId => senderID.m_SteamID;
 
     public void Poll()
     {
-        TickPendingRoomOp();
-        FlushPendingSends();
-        if (!InRoom) return;
-
-        ReceiveP2P();
-        CheckAndUpdatePlayerCount();
-    }
-
-    void TickPendingRoomOp()
-    {
-        if (pendingRoomOp == PendingRoomOp.None || InRoom)
-            return;
-
-        ulong now = NowMs();
-        var steam = SteamManager.Instance;
-        if (steam == null || !steam.Inited)
+        if (localKickPending)
         {
-            FailPendingRoomOp(pendingRoomOp == PendingRoomOp.Create ? "创建房间失败" : "加入房间失败");
+            ResetState();
+            Kicked?.Invoke();
             return;
         }
 
+        TickRoomOperation();
+        if (currentLobby.m_SteamID == 0)
+            return;
+
+        ulong now = NowMs();
+        if (now >= nextMemberRefresh)
+        {
+            RefreshMemberCache();
+            if (AmIHost())
+                PublishPresence();
+        }
+        if (!AmIHost() && (!members.Contains(HostID) || failedHost != 0))
+        {
+            if (!InRoom)
+                FailPendingRoomOp("无法进入房间");
+            else
+            {
+                LastRoomFailMessageKey = "主机已退出";
+                ResetState();
+                HostQuit?.Invoke();
+            }
+            return;
+        }
+
+        if (peerListDirty)
+        {
+            peerListDirty = false;
+            readyPeers.ExceptWith(failedPeers);
+            int version = roomVersion;
+            NotifyPlayersChanged();
+            if (version != roomVersion)
+                return;
+        }
+        FlushPendingSends();
+        ReceiveP2P();
+    }
+
+    private void TickRoomOperation()
+    {
+        if (pendingOperation == RoomOperation.None)
+            return;
+
+        var steam = SteamManager.Instance;
+        ulong now = NowMs();
+        if (steam?.Inited != true || now >= deadline)
+        {
+            FailPendingRoomOp(steam?.IsRelayNetworkReady == false
+                ? "Steam 网络连接超时"
+                : pendingOperation == RoomOperation.Create ? "创建房间失败" : "加入房间失败");
+            return;
+        }
+        if (lobbyApiIssued)
+            return;
         if (!steam.IsRelayNetworkReady)
         {
-            if (now - pendingOpStartedMs >= RelayWaitTimeoutMs)
+            if (now >= nextRelayRetry)
             {
-                FailPendingRoomOp("Steam 网络连接超时");
-                return;
-            }
-
-            if (lastRelayRetryMs == 0 || now - lastRelayRetryMs >= RelayRetryIntervalMs)
-            {
-                lastRelayRetryMs = now;
+                nextRelayRetry = now + 2000;
                 steam.EnsureRelayNetworkAccess();
             }
             return;
         }
 
-        if (!lobbyApiIssued)
+        lobbyApiIssued = true;
+        deadline = now + LobbyWaitTimeoutMs;
+        int version = roomVersion;
+        if (pendingOperation == RoomOperation.Create)
         {
-            lobbyApiIssued = true;
-            lobbyApiIssuedMs = now;
-            IssueLobbyApi();
-            return;
+            var call = SteamMatchmaking.CreateLobby(PendingCreateLobbyType, Math.Clamp(PendingCreateMaxPlayers, 1, 250));
+            CallResult<LobbyCreated_t> result = null;
+            result = CallResult<LobbyCreated_t>.Create((e, ioFailure) =>
+            {
+                result.Dispose();
+                bool success = !ioFailure && e.m_eResult == EResult.k_EResultOK;
+                HandleLobbyResult(version, success, e.m_ulSteamIDLobby, creating: true);
+            });
+            result.Set(call);
         }
-
-        if (now - lobbyApiIssuedMs >= LobbyWaitTimeoutMs)
+        else
         {
-            FailPendingRoomOp(pendingRoomOp == PendingRoomOp.Create ? "创建房间失败" : "加入房间失败");
+            var call = SteamMatchmaking.JoinLobby(new CSteamID(pendingLobby));
+            CallResult<LobbyEnter_t> result = null;
+            result = CallResult<LobbyEnter_t>.Create((e, ioFailure) =>
+            {
+                result.Dispose();
+                bool success = !ioFailure && e.m_EChatRoomEnterResponse == 1;
+                HandleLobbyResult(version, success, e.m_ulSteamIDLobby, creating: false);
+            });
+            result.Set(call);
         }
     }
 
-    void IssueLobbyApi()
+    private void HandleLobbyResult(int version, bool success, ulong lobbyId, bool creating)
     {
-        if (pendingRoomOp == PendingRoomOp.Create)
+        var lobby = new CSteamID(lobbyId);
+        if (version != roomVersion)
         {
-            int maxPlayers = Mathf.Max(PendingCreateMaxPlayers, 1);
-            var apiCall = SteamMatchmaking.CreateLobby(PendingCreateLobbyType, maxPlayers);
-            lobbyCreatedCallResult?.Set(apiCall);
+            // Steam cannot cancel lobby API calls. A late success can still create membership.
+            if (success && !IsCurrentOrPendingLobby(lobbyId))
+                SteamMatchmaking.LeaveLobby(lobby);
+            return;
+        }
+        if (!success)
+        {
+            FailPendingRoomOp(creating ? "创建房间失败" : "加入房间失败");
             return;
         }
 
-        if (pendingRoomOp == PendingRoomOp.Join)
-            SteamMatchmaking.JoinLobby(new CSteamID(pendingJoinLobbyId));
+        currentLobby = lobby;
+        HostID = creating ? LocalID : SteamMatchmaking.GetLobbyOwner(lobby).m_SteamID;
+        RefreshMemberCache();
+        if (creating)
+        {
+            SteamMatchmaking.SetLobbyData(currentLobby, OnlineRoomListing.KeyGameId, OnlineRoomListing.GameId);
+            SteamMatchmaking.SetLobbyData(currentLobby, OnlineRoomListing.KeyProtocolVersion, OnlineRoomListing.ProtocolVersion);
+            CompleteRoomJoin();
+            return;
+        }
+        if (!OnlineRoomListing.IsOurGame(SteamMatchmaking.GetLobbyData(lobby, OnlineRoomListing.KeyGameId))
+            || SteamMatchmaking.GetLobbyData(lobby, OnlineRoomListing.KeyProtocolVersion) != OnlineRoomListing.ProtocolVersion)
+        {
+            FailPendingRoomOp("无法进入房间");
+            return;
+        }
+        if (HostID == 0 || HostID == LocalID || !members.Contains(HostID))
+        {
+            FailPendingRoomOp("无法进入房间");
+            return;
+        }
+
+        joinNonce = (ulong)Random.Shared.NextInt64(1, long.MaxValue);
+        deadline = NowMs() + HandshakeTimeoutMs;
+        SendHandshake(HostID, Hello, joinNonce);
     }
 
-    void FailPendingRoomOp(string messageKey)
+    private bool IsCurrentOrPendingLobby(ulong lobbyId)
     {
-        LastRoomFailMessageKey = messageKey ?? "无法进入房间";
-        if (pendingCreatedLobbyId != 0)
-        {
-            SteamMatchmaking.LeaveLobby(new CSteamID(pendingCreatedLobbyId));
-            pendingCreatedLobbyId = 0;
-        }
-        pendingRoomOp = PendingRoomOp.None;
-        pendingJoinLobbyId = 0;
-        lobbyApiIssued = false;
+        var current = TransportManager.Instance?.Current as SteamTransport;
+        return current != null && (current.currentLobby.m_SteamID == lobbyId
+            || (current.pendingOperation == RoomOperation.Join && current.pendingLobby == lobbyId));
+    }
+
+    private void CompleteRoomJoin()
+    {
+        InRoom = true;
+        pendingOperation = RoomOperation.None;
+        int version = roomVersion;
+        RoomJoined?.Invoke();
+        if (version == roomVersion)
+            RoomStateChanged?.Invoke();
+    }
+
+    private void FailPendingRoomOp(string messageKey, bool blocked = false)
+    {
+        LastRoomFailMessageKey = messageKey;
+        LastJoinWasBlocked = blocked;
+        ResetState();
         RoomJoinFailed?.Invoke();
     }
 
-    void RegisterCallbacks()
+    private bool CanTalkTo(ulong peerId)
     {
-        sessionRequestCallback = Callback<SteamNetworkingMessagesSessionRequest_t>.Create(OnSessionRequest);
-        lobbyEnterCallback = Callback<LobbyEnter_t>.Create(OnLobbyEnter);
-        lobbyDataUpdateCallback = Callback<LobbyDataUpdate_t>.Create(OnLobbyDataUpdate);
-        lobbyChatUpdateCallback = Callback<LobbyChatUpdate_t>.Create(OnLobbyChatUpdate);
-        lobbyCreatedCallResult = CallResult<LobbyCreated_t>.Create(OnLobbyCreated);
-    }
-
-    void UnregisterCallbacks()
-    {
-        lobbyEnterCallback?.Dispose();
-        lobbyDataUpdateCallback?.Dispose();
-        sessionRequestCallback?.Dispose();
-        lobbyChatUpdateCallback?.Dispose();
-        lobbyCreatedCallResult?.Dispose();
-        lobbyEnterCallback = null;
-        lobbyDataUpdateCallback = null;
-        sessionRequestCallback = null;
-        lobbyChatUpdateCallback = null;
-        lobbyCreatedCallResult = null;
-    }
-
-    void OnLobbyCreated(LobbyCreated_t e, bool ioFailure)
-    {
-        if (pendingRoomOp != PendingRoomOp.Create)
-            return;
-
-        if (ioFailure || e.m_eResult != EResult.k_EResultOK)
-        {
-            GD.PrintErr($"[SteamTransport] CreateLobby failed: ioFailure={ioFailure} result={e.m_eResult}");
-            FailPendingRoomOp("创建房间失败");
-            return;
-        }
-
-        pendingCreatedLobbyId = e.m_ulSteamIDLobby;
-    }
-
-    void OnLobbyEnter(LobbyEnter_t e)
-    {
-        if (e.m_EChatRoomEnterResponse != 1)
-        {
-            FailPendingRoomOp(pendingRoomOp == PendingRoomOp.Create ? "创建房间失败" : "加入房间失败");
-            return;
-        }
-        var enteredLobby = new CSteamID(e.m_ulSteamIDLobby);
-        bool sameLobbyReenter = InRoom && currentLobby == enteredLobby;
-
-        currentLobby = enteredLobby;
-        InRoom = true;
-        pendingRoomOp = PendingRoomOp.None;
-        pendingJoinLobbyId = 0;
-        pendingCreatedLobbyId = 0;
-        lobbyApiIssued = false;
-        // 进房当下的 Owner 即本局原始主机；之后 Steam 转移 Owner 也不改 HostID。
-        _cachedHostID = SteamMatchmaking.GetLobbyOwner(currentLobby).m_SteamID;
-        RefreshMemberCache();
-
-        if (!sameLobbyReenter && !hasRaisedRoomJoined)
-        {
-            hasRaisedRoomJoined = true;
-            RoomJoined?.Invoke();
-        }
-
-        RoomStateChanged?.Invoke();
-    }
-
-    void OnLobbyDataUpdate(LobbyDataUpdate_t e)
-    {
-        if (e.m_ulSteamIDLobby != currentLobby.m_SteamID) return;
-        CheckAndUpdatePlayerCount();
-    }
-
-    void OnLobbyChatUpdate(LobbyChatUpdate_t e)
-    {
-        if (e.m_ulSteamIDLobby != currentLobby.m_SteamID) return;
-        CheckAndUpdatePlayerCount();
-
-        const uint leftMask =
-            (uint)EChatMemberStateChange.k_EChatMemberStateChangeLeft
-            | (uint)EChatMemberStateChange.k_EChatMemberStateChangeDisconnected
-            | (uint)EChatMemberStateChange.k_EChatMemberStateChangeKicked
-            | (uint)EChatMemberStateChange.k_EChatMemberStateChangeBanned;
-        if ((e.m_rgfChatMemberStateChange & leftMask) == 0)
-            return;
-        if (e.m_ulSteamIDUserChanged == _cachedHostID)
-            NotifyOriginalHostLeft();
-    }
-
-    void CheckAndUpdatePlayerCount()
-    {
-        if (!InRoom) return;
-
-        int currentCount = SteamMatchmaking.GetNumLobbyMembers(currentLobby);
-        if (roomPlayersCount != currentCount)
-        {
-            roomPlayersCount = currentCount;
-            GD.Print($"[SteamTransport] 人数变动: {currentCount}");
-
+        if (currentLobby.m_SteamID == 0 || peerId == 0 || peerId == LocalID)
+            return false;
+        if (!AmIHost())
+            return peerId == HostID && failedHost == 0;
+        if (!members.Contains(peerId))
             RefreshMemberCache();
-
-            if (hasRaisedRoomJoined
-                && currentCount > 0
-                && _cachedHostID != 0
-                && _cachedHostID != LocalID
-                && !_cachedMemberIDs.Contains(_cachedHostID))
-            {
-                NotifyOriginalHostLeft();
-                return;
-            }
-
-            NetPlayerListChanged?.Invoke();
-            RoomStateChanged?.Invoke();
-        }
+        return members.Contains(peerId) && !failedPeers.Contains(peerId);
     }
 
-    void NotifyOriginalHostLeft()
+    public bool KickPeer(ulong peerId, bool blockRejoin)
     {
-        if (hostQuitRaised || _cachedHostID == 0 || _cachedHostID == LocalID)
+        if (!IsPeerConnected(peerId))
+            return false;
+
+        if (blockRejoin)
+            blockedPeers.Add(peerId);
+        kickedMembers.Add(peerId);
+        readyPeers.Remove(peerId);
+        ClosePeerSession(peerId);
+        peerListDirty = true;
+
+        // Lobby chat can deliver the exit notice after the P2P connection is closed.
+        BinaryPrimitives.WriteUInt32LittleEndian(lobbyChatBuffer, LobbyKickMagic);
+        BinaryPrimitives.WriteUInt64LittleEndian(lobbyChatBuffer.AsSpan(sizeof(uint)), peerId);
+        if (!SteamMatchmaking.SendLobbyChatMsg(currentLobby, lobbyChatBuffer, LobbyKickBytes))
+            GD.PushWarning("[SteamTransport] 无法发送踢出通知，游戏连接已移除。");
+        return true;
+    }
+
+    public bool TryOpenInviteDialog()
+    {
+        if (!InRoom || !AmIHost() || !SteamUtils.IsOverlayEnabled())
+            return false;
+
+        SteamFriends.ActivateGameOverlayInviteDialog(currentLobby);
+        return true;
+    }
+
+    private void OnLobbyChatMessage(LobbyChatMsg_t message)
+    {
+        if (currentLobby.m_SteamID == 0 || message.m_ulSteamIDLobby != currentLobby.m_SteamID
+            || HostID == 0 || AmIHost() || message.m_ulSteamIDUser != HostID)
             return;
 
-        hostQuitRaised = true;
-        LastRoomFailMessageKey = "主机已退出";
-        GD.Print("[SteamTransport] 原始主机已离开");
-        HostQuit?.Invoke();
-        ResetState(true);
+        int size = SteamMatchmaking.GetLobbyChatEntry(currentLobby, (int)message.m_iChatID,
+            out var sender, lobbyChatBuffer, lobbyChatBuffer.Length, out var entryType);
+        if (size != LobbyKickBytes || sender.m_SteamID != HostID
+            || entryType != EChatEntryType.k_EChatEntryTypeChatMsg
+            || BinaryPrimitives.ReadUInt32LittleEndian(lobbyChatBuffer) != LobbyKickMagic
+            || BinaryPrimitives.ReadUInt64LittleEndian(lobbyChatBuffer.AsSpan(sizeof(uint))) != LocalID)
+            return;
+
+        localKickPending = true;
     }
 
-    void RefreshMemberCache()
+    private void OnLobbyChatUpdate(LobbyChatUpdate_t e)
     {
-        _cachedMemberIDs.Clear();
+        if (e.m_ulSteamIDLobby != currentLobby.m_SteamID)
+            return;
+        if (InRoom && !AmIHost())
+            peerListDirty = true;
+        const uint leftMask = (uint)(EChatMemberStateChange.k_EChatMemberStateChangeLeft
+            | EChatMemberStateChange.k_EChatMemberStateChangeDisconnected
+            | EChatMemberStateChange.k_EChatMemberStateChangeKicked
+            | EChatMemberStateChange.k_EChatMemberStateChangeBanned);
+        if ((e.m_rgfChatMemberStateChange & leftMask) != 0)
+        {
+            ulong peerId = e.m_ulSteamIDUserChanged;
+            ClosePeerSession(peerId);
+            members.Remove(peerId);
+            failedPeers.Remove(peerId);
+            kickedMembers.Remove(peerId);
+            if (readyPeers.Remove(peerId))
+                peerListDirty = true;
+            if (peerId == HostID && !AmIHost())
+                failedHost = peerId;
+        }
+        nextMemberRefresh = 0;
+    }
+
+    private void RefreshMemberCache()
+    {
+        nextMemberRefresh = NowMs() + MemberRefreshIntervalMs;
+        previousMembers.Clear();
+        previousMembers.UnionWith(members);
+        members.Clear();
         int count = SteamMatchmaking.GetNumLobbyMembers(currentLobby);
         for (int i = 0; i < count; i++)
         {
-            _cachedMemberIDs.Add(SteamMatchmaking.GetLobbyMemberByIndex(currentLobby, i).m_SteamID);
+            ulong memberId = SteamMatchmaking.GetLobbyMemberByIndex(currentLobby, i).m_SteamID;
+            if (memberId != 0)
+                members.Add(memberId);
+        }
+        previousMembers.ExceptWith(members);
+        foreach (ulong departed in previousMembers)
+        {
+            if (departed != LocalID)
+                ClosePeerSession(departed);
+            failedPeers.Remove(departed);
+            kickedMembers.Remove(departed);
+            if (readyPeers.Remove(departed))
+                peerListDirty = true;
         }
     }
 
-    static ulong NowMs() => Time.GetTicksMsec();
+    private void NotifyPlayersChanged()
+    {
+        int version = roomVersion;
+        NetPlayerListChanged?.Invoke();
+        if (version == roomVersion)
+            RoomStateChanged?.Invoke();
+    }
+
+    internal void PublishPresence()
+    {
+        if (!InRoom || !AmIHost())
+            return;
+        var presence = NetRoomPresenceSource.Read?.Invoke();
+        var state = (
+            Players: presence?.PlayerCount ?? readyPeers.Count + 1,
+            MaxPlayers: presence?.MaxPlayers ?? PendingCreateMaxPlayers,
+            Joinable: presence?.AllowsJoining ?? readyPeers.Count + 1 < PendingCreateMaxPlayers,
+            MidJoinable: presence?.MidJoinable ?? PendingCreateMidJoinable,
+            InMatch: presence?.InMatch ?? false,
+            MatchId: presence?.MatchId ?? "");
+        if (publishedPresence.HasValue && publishedPresence.Value == state)
+            return;
+
+        // Keep the lobby listable even while the game rejects new peers.
+        publishedPresence = state;
+        SteamMatchmaking.SetLobbyData(currentLobby, OnlineRoomListing.KeyPlayerCount, state.Players.ToString());
+        SteamMatchmaking.SetLobbyData(currentLobby, OnlineRoomListing.KeyMaxPlayers, state.MaxPlayers.ToString());
+        SteamMatchmaking.SetLobbyData(currentLobby, OnlineRoomListing.KeyJoinable, state.Joinable ? "1" : "0");
+        SteamMatchmaking.SetLobbyData(currentLobby, OnlineRoomListing.KeyMidJoinable, state.MidJoinable ? "1" : "0");
+        SteamMatchmaking.SetLobbyData(currentLobby, OnlineRoomListing.KeyFlow,
+            state.InMatch ? OnlineRoomListing.FlowInMatch : OnlineRoomListing.FlowWaiting);
+        SteamMatchmaking.SetLobbyData(currentLobby, OnlineRoomListing.KeyMatchId, state.MatchId);
+    }
+
+    private static ulong NowMs() => Time.GetTicksMsec();
 }

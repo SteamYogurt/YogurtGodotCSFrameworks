@@ -34,7 +34,7 @@ public partial class WaitingOverlay : Control
 			Text = "取消",
 			CustomMinimumSize = new Vector2(160, 36)
 		};
-		cancel.Pressed += () => Main.Instance?.ResetAndReturnToMenu();
+		cancel.Pressed += () => Main.Instance?.ReturnToLobby();
 		box.AddChild(cancel);
 
 		VisibilityChanged += () =>

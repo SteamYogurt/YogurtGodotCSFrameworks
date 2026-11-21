@@ -5,12 +5,14 @@ alwaysApply: true
 
 # 模块边界
 
-每个套件目录自包含。后续项目只打开一份 `docs/agent/<模块>.md` 就能知道路径、依赖方向和扩展点。
+每个套件目录自包含。后续项目只打开一份 `docs/agent/<模块>.md` 就能知道路径、依赖方向和扩展点。沿用清单在 `docs/agent/consume.md`。
 
-- `Net` 不知道 `Game` / `Player` / `Match`。同步域用 `INetObject.NetSyncScope`，对局准入用 `NetMatchAdmission.CollectRemotePeers`，房间快照用 `NetRoomPresenceSource.Read`。
+- `Net` 不知道 `Game` / `Player` / `Match`。同步域用 `INetObject.NetSyncScope`，对局准入由主机调用 `NetManager.AdmitPeerToMatch` 与 `RevokePeerFromMatch`，房间发现与进房判断用 `NetRoomPresenceSource.Read`。
 - `UIManager` 管 `Main` 的界面层，不引用 `Game`。会话根仍由 `Main` 的房间流程生成。
+- `GameOnlineContext` 在 `Net/Room`。房间面板只接收成员快照并发出操作请求，`Main.UI` 负责对接会话根，踢人与重入限制由主机传输执行。
 - `UnitCore` 只依赖 `IUnit` 与通用类型。游戏特化留在游戏项目。
 - `Promotion` 通过 `MatchContext` 接入，不直接找场景节点。
 - `Player` 在 `Scripts/Game`。身份、就绪、离线槽位属于示例，不属于传输层。
-- 有对局流的项目：把会话根标成 `NetSyncScope.Session` 且 `MidJoinSyncPriority = SessionRoot`，对局对象保持默认 `Match`，并注册准入名单。
-- 房间列表的游戏 id 是 `OnlineRoomListing.GameId`。新项目改这一处，不要在 Steam / LAN 各写一套键。
+- 有对局流的项目：会话根使用 `NetSyncScope.Session` 且 `MidJoinSyncPriority = SessionRoot`。对局对象保持默认 `Match`，生成前启用 `RequireMatchAdmission`，新进房 peer 走 `SyncForJoiningPeer`。
+- Steam / LAN 发现共用 `OnlineRoomListing.GameId` 与 `NetWireLimits.ProtocolVersion`。改协议版本时同步握手、发现和 `docs/agent/net.md`。
+- 原样抄套件目录。`Main*` / `UI` / `MainUI` 是壳，抄完要换。不要抄 `Scripts/Game`、`Scripts/Temp`、`AATest`。

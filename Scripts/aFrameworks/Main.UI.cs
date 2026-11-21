@@ -1,4 +1,5 @@
 using Godot;
+using System.Linq;
 
 public partial class Main
 {
@@ -9,7 +10,20 @@ public partial class Main
 
     public void ResetAndReturnToMenu()
     {
+        ResetRoomSession();
+        UIManager.Instance.ShowMenu();
+    }
+
+    public void ReturnToLobby(string notice = "")
+    {
+        ResetRoomSession();
+        UIManager.Instance.OpenLobby(roomDisplayType, notice);
+    }
+
+    void ResetRoomSession()
+    {
         currentRoomFlowRequest = null;
+        waitingForSessionUntil = 0;
         Game.PendingOnlineContext = null;
         StopObservingTransport();
         TransportManager.Instance.Deactivate();
@@ -19,7 +33,7 @@ public partial class Main
             Game.instance.QueueFree();
         }
         lanDiscoveryService?.StopAll();
-        UIManager.Instance.ShowMenu();
+        UIManager.Instance.HideWaiting();
     }
 
     public void ClearAllUnimportantUI()
@@ -47,8 +61,42 @@ public partial class Main
         UIManager.Instance.PlayTransition(forward);
     }
 
-    void OnKicked()
+    void ShowOnlineRoom(Game game)
     {
-        Game.TryFreeGameAndReturn("Kicked or Started");
+        var transport = TransportManager.Instance.Current;
+        var panel = UIManager.Instance.ShowOnlineRoom(roomDisplayType);
+        if (transport == null || panel == null)
+            return;
+
+        void RefreshRoster() => panel.SetRoster(game.RoomName, game.MaxPlayerCount,
+            transport.HostID, transport.LocalID, game.Players.Select(p =>
+                new INetTransportPlayerInfo { id = p.PlayerId, name = p.PlayerName }));
+        void RefreshPlayer(Player player)
+        {
+            if (game.GetPlayer(player.PlayerId) == player)
+                RefreshRoster();
+        }
+
+        game.PlayersChanged += RefreshRoster;
+        game.PlayerStatusChanged += RefreshPlayer;
+        game.GameStateChanged += RefreshRoster;
+        panel.LeaveRequested += () => ReturnToLobby();
+        panel.InviteRequested += () =>
+        {
+            if (transport is SteamTransport steam && !steam.TryOpenInviteDialog())
+                panel.ShowNotice("Steam 游戏内界面不可用。");
+        };
+        panel.KickRequested += peerId =>
+        {
+            if (!TransportManager.Instance.HostKick(peerId))
+                panel.ShowNotice("该玩家已离开，无法踢出。");
+        };
+        panel.TreeExiting += () =>
+        {
+            game.PlayersChanged -= RefreshRoster;
+            game.PlayerStatusChanged -= RefreshPlayer;
+            game.GameStateChanged -= RefreshRoster;
+        };
+        RefreshRoster();
     }
 }
